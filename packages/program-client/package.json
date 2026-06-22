@@ -1,0 +1,37 @@
+{
+  "name": "@slop/program-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed client + IDL for the credits Anchor program (devnet / MagicBlock ER).",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./idl": "./idl/credits.json"
+  },
+  "files": [
+    "dist",
+    "idl"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist",
+    "lint": "echo \"[program-client] no lint configured yet\""
+  },
+  "dependencies": {
+    "@slop/shared": "workspace:*",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

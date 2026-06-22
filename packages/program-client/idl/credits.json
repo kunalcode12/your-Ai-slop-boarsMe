@@ -1,0 +1,586 @@
+{
+  "address": "FunwpPA4fah5czxHfhbDD6iQE9L3wPUvuEzUkd5gL6Fv",
+  "metadata": {
+    "name": "credits",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "your ai slop bores me — on-chain credit economy (Solana devnet / MagicBlock ER)"
+  },
+  "instructions": [
+    {
+      "name": "earn",
+      "docs": [
+        "Earn 1 credit for an accepted answer. Earned credits may exceed the refill",
+        "cap (the cap only limits passive accrual; you actively earned these)."
+      ],
+      "discriminator": [
+        120,
+        28,
+        58,
+        147,
+        140,
+        17,
+        17,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player.authority",
+                "account": "Player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_config",
+      "docs": [
+        "Initialize the singleton Config PDA. Callable once. The signer becomes admin."
+      ],
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_player",
+      "docs": [
+        "Create a Player PDA for `authority` with a small starting balance.",
+        "MUST be signed by `server_authority` (anti-sybil — see trust model above)."
+      ],
+      "discriminator": [
+        114,
+        27,
+        219,
+        144,
+        50,
+        15,
+        228,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority"
+        },
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refill",
+      "docs": [
+        "Passive refill: if at least `refill_interval` seconds have elapsed, add",
+        "`refill_amount` (clamped to `max_credits`) and reset the clock."
+      ],
+      "discriminator": [
+        128,
+        207,
+        142,
+        11,
+        54,
+        232,
+        38,
+        201
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player.authority",
+                "account": "Player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refund",
+      "docs": [
+        "Refund `amount` previously-spent credits (an unclaimed prompt expired)."
+      ],
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player.authority",
+                "account": "Player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "spend",
+      "docs": [
+        "Spend `amount` credits (a prompt submission). Errors if balance is too low."
+      ],
+      "discriminator": [
+        242,
+        205,
+        255,
+        87,
+        101,
+        217,
+        245,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player.authority",
+                "account": "Player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Player",
+      "discriminator": [
+        205,
+        222,
+        112,
+        7,
+        165,
+        155,
+        206,
+        218
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InsufficientCredits",
+      "msg": "not enough credits for this action 💀"
+    },
+    {
+      "code": 6001,
+      "name": "RefillNotReady",
+      "msg": "refill isn't ready yet, touch grass"
+    },
+    {
+      "code": 6002,
+      "name": "Unauthorized",
+      "msg": "signer is not authorized for this action"
+    },
+    {
+      "code": 6003,
+      "name": "MaxCreditsReached",
+      "msg": "already at max credits"
+    },
+    {
+      "code": 6004,
+      "name": "MathOverflow",
+      "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidConfig",
+      "msg": "invalid config parameters"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "server_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "credit_cost_text",
+            "type": "u64"
+          },
+          {
+            "name": "credit_cost_image",
+            "type": "u64"
+          },
+          {
+            "name": "refill_amount",
+            "type": "u64"
+          },
+          {
+            "name": "refill_interval",
+            "type": "i64"
+          },
+          {
+            "name": "max_credits",
+            "type": "u64"
+          },
+          {
+            "name": "starting_balance",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "server_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "credit_cost_text",
+            "type": "u64"
+          },
+          {
+            "name": "credit_cost_image",
+            "type": "u64"
+          },
+          {
+            "name": "refill_amount",
+            "type": "u64"
+          },
+          {
+            "name": "refill_interval",
+            "type": "i64"
+          },
+          {
+            "name": "max_credits",
+            "type": "u64"
+          },
+          {
+            "name": "starting_balance",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Player",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "balance",
+            "type": "u64"
+          },
+          {
+            "name": "last_refill",
+            "type": "i64"
+          },
+          {
+            "name": "answers_given",
+            "type": "u64"
+          },
+          {
+            "name": "prompts_sent",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

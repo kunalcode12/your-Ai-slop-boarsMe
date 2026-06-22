@@ -1,0 +1,16 @@
+{
+  "name": "@slop/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Next.js frontend — the cartoon UI for 'your ai slop bores me'.",
+  "scripts": {
+    "dev": "echo \"[web] dev not implemented yet (see step 6)\"",
+    "build": "echo \"[web] build not implemented yet (see step 6)\"",
+    "typecheck": "echo \"[web] typecheck not implemented yet (see step 6)\"",
+    "lint": "echo \"[web] no lint configured yet\"",
+    "test": "echo \"[web] no tests yet\""
+  },
+  "dependencies": {
+    "@slop/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# rust / anchor
+target/
+programs/**/target/
+.anchor/
+test-ledger/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.keypair.json
+wallet-keypair.json
+server-keypair.json
+
+# supabase local
+supabase/.branches/
+supabase/.temp/
+
+# logs / os
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/

@@ -1,0 +1,8 @@
+# pnpm workspace definition.
+# NOTE: the Rust crate (programs/credits/programs/credits) and supabase/ are NOT
+# pnpm packages. programs/credits IS included only so the Anchor TS test deps
+# (ts-mocha, @coral-xyz/anchor) resolve via pnpm; Cargo/Anchor still own the Rust.
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "programs/credits"

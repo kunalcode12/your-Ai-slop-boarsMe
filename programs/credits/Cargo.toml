@@ -1,0 +1,12 @@
+# Cargo workspace root for the Anchor project.
+# The Rust program crate lives at programs/credits (standard nested Anchor layout).
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+# Defense-in-depth: enable overflow checks even in release. The program also uses
+# explicit checked_* math, but this guards anything missed.
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
