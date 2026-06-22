@@ -93,7 +93,7 @@ describe("credits", () => {
   it("spend succeeds and decrements balance + bumps prompts_sent", async () => {
     await program.methods
       .spend(new BN(2))
-      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
       .rpc();
 
     const p = await program.account.player.fetch(playerPda);
@@ -105,7 +105,7 @@ describe("credits", () => {
     try {
       await program.methods
         .spend(new BN(999))
-        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
         .rpc();
       assert.fail("expected InsufficientCredits");
     } catch (e) {
@@ -116,7 +116,7 @@ describe("credits", () => {
   it("earn adds 1 credit + bumps answers_given", async () => {
     await program.methods
       .earn()
-      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
       .rpc();
 
     const p = await program.account.player.fetch(playerPda);
@@ -127,7 +127,7 @@ describe("credits", () => {
   it("refund adds back a spent amount", async () => {
     await program.methods
       .refund(new BN(1))
-      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
       .rpc();
 
     const p = await program.account.player.fetch(playerPda);
@@ -135,11 +135,19 @@ describe("credits", () => {
   });
 
   it("refill is gated by the interval (RefillNotReady), then succeeds", async () => {
-    // immediately after init/last_refill -> not enough elapsed
+    // prime a successful refill so last_refill = now (balance is 3 < max here).
+    // this makes the immediate retry below reliably gated, independent of how long
+    // the preceding tests took (the 1s interval can otherwise already be elapsed).
+    await program.methods
+      .refill()
+      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
+      .rpc();
+
+    // immediately retry -> not enough time elapsed since the prime
     try {
       await program.methods
         .refill()
-        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
         .rpc();
       assert.fail("expected RefillNotReady");
     } catch (e) {
@@ -150,7 +158,7 @@ describe("credits", () => {
     const before = (await program.account.player.fetch(playerPda)).balance.toNumber();
     await program.methods
       .refill()
-      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+      .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
       .rpc();
     const after = (await program.account.player.fetch(playerPda)).balance.toNumber();
     assert.equal(after, Math.min(before + 1, 5));
@@ -162,7 +170,7 @@ describe("credits", () => {
     while (p.balance.toNumber() < 5) {
       await program.methods
         .earn()
-        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
         .rpc();
       p = await program.account.player.fetch(playerPda);
     }
@@ -172,7 +180,7 @@ describe("credits", () => {
     try {
       await program.methods
         .refill()
-        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey })
+        .accountsPartial({ config: configPda, player: playerPda, signer: serverAuthority.publicKey, sessionToken: null })
         .rpc();
       assert.fail("expected MaxCreditsReached");
     } catch (e) {
@@ -188,7 +196,7 @@ describe("credits", () => {
     try {
       await program.methods
         .spend(new BN(1))
-        .accountsPartial({ config: configPda, player: playerPda, signer: rando.publicKey })
+        .accountsPartial({ config: configPda, player: playerPda, signer: rando.publicKey, sessionToken: null })
         .signers([rando])
         .rpc();
       assert.fail("expected Unauthorized");

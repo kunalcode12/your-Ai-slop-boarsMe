@@ -14,30 +14,29 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
-# ER MODE (off by default). Enables MagicBlock ephemeral-rollup delegation/commit/
-# undelegate instructions. The app runs on PLAIN DEVNET without this; turn it on as
-# a separate, verified pass. See README "ER fallback switch".
+idl-build = ["anchor-lang/idl-build", "session-keys/idl-build"]
+# ER MODE (off by default for the on-chain settle layer). Enables the MagicBlock
+# ephemeral-rollup delegate / commit / undelegate instructions. The credit economy
+# runs on PLAIN DEVNET without this; turning it on is additive (extra instructions),
+# so the app is never blocked on ER. Toolchain: Anchor 1.0.2 + Solana 3.1.10, which
+# is what ephemeral-rollups-sdk 0.15.5 (anchor-modern path) targets.
 er = ["dep:ephemeral-rollups-sdk"]
 
 [dependencies]
-anchor-lang = "0.32.1"
+anchor-lang = "1.0.2"
 
-# Pulled in only with --features er. Crate name is hyphenated (`ephemeral-rollups-sdk`,
-# imported in Rust as `ephemeral_rollups_sdk`). Version verified against crates.io
-# (0.15.5, Jun 2026) and docs.magicblock.gg.
-#
-# KNOWN BLOCKER (verified by attempting `anchor build -- --features er`):
-# 0.15.5 targets the Solana 3.x stack (solana-program ^3.0, solana-address ^2.0) and
-# anchor-lang ^1.0, while this program is on anchor-lang 0.32.1 / Solana 2.x. The two
-# pull incompatible copies of solana-program-error etc., so the ER feature does NOT
-# link on the current toolchain. Enabling ER requires migrating the whole program to
-# Anchor 1.0 + Solana 3.x (and `anchor-cli` 1.0). Deferred per the master spec's
-# "never block the app on ER" rule. The session-keys crate (latest 3.1.1) has the
-# same requirement.
+# Session keys (MagicBlock `session-keys` 3.1.1). ALWAYS ON: spend/earn accept either
+# the player's own authority / the server authority (auth_expr branch) OR a registered
+# session key (session_token branch) — see `Mutate` + `#[session_auth_or]` in lib.rs.
+# `no-entrypoint` re-exports the `Session` derive + `session_auth_or` attribute macro.
+# anchor-lang requirement is `>=0.28, <2.0`, so it links cleanly against anchor 1.0.2.
+# On-chain SessionToken accounts are owned by the session program
+# KeyspM2ssCJbqUhQ4k7sveSiY4WjnYsrXkC8oDbwde5 (deployed on devnet by MagicBlock).
+session-keys = { version = "3.1.1", features = ["no-entrypoint"] }
+
+# Pulled in only with --features er. Crate is hyphenated (`ephemeral-rollups-sdk`,
+# imported in Rust as `ephemeral_rollups_sdk`). The `anchor` feature == `anchor-modern`
+# == anchor-lang 1.0 path (verified in the crate's own Cargo [features], Jun 2026).
+# Provides the #[ephemeral]/#[delegate]/#[commit] macros, cpi::DelegateConfig, and the
+# ephem::MagicIntentBundleBuilder used for commit / commit_and_undelegate.
 ephemeral-rollups-sdk = { version = "0.15.5", features = ["anchor"], optional = true }
-
-# Session keys (MagicBlock `session-keys` 1.0.0) are documented + scaffolded for
-# the `er` pass but intentionally NOT wired into core instructions yet (doing so
-# changes spend/earn account layouts). See SESSION_KEYS note in lib.rs. To enable:
-#   session-keys = { version = "1.0.0", features = ["no-entrypoint"], optional = true }

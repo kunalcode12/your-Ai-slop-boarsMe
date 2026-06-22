@@ -5,9 +5,12 @@
  *   3. emit credits:updated to the player's room.
  * If the on-chain op fails, NO off-chain effect is applied (the caller aborts).
  *
- * Uses the plain-devnet path (PROMPT 3's CreditsClient signs as server_authority).
- * ER/session-key path is deferred (PROMPT 3) — swap the CreditsClient ops here
- * when it lands; this interface doesn't change.
+ * Uses the plain-devnet path: the CreditsClient signs as server_authority, so
+ * users never see a wallet popup. The program + client now also support session
+ * keys (spend/earn) and ER delegate/commit/undelegate; to route ops through a
+ * MagicBlock ER, set MAGICBLOCK_RPC_URL and call the client's ER helpers here.
+ * This bridge interface does not change either way — plain devnet stays the
+ * default so the app is never blocked on ER.
  */
 
 import {

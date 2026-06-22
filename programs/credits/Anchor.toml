@@ -1,15 +1,16 @@
 [toolchain]
-anchor_version = "0.32.1"
+anchor_version = "1.0.2"
+solana_version = "3.1.10"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-credits = "FunwpPA4fah5czxHfhbDD6iQE9L3wPUvuEzUkd5gL6Fv"
+credits = "2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U"
 
 [programs.devnet]
-credits = "FunwpPA4fah5czxHfhbDD6iQE9L3wPUvuEzUkd5gL6Fv"
+credits = "2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U"
 
 [registry]
 url = "https://api.apr.dev"

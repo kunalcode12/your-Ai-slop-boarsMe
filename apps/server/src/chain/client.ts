@@ -1,4 +1,5 @@
-/** Build the PROMPT-3 CreditsClient from config (plain-devnet path). */
+/** Build the CreditsClient from config. Plain-devnet path by default; passes the
+ * MagicBlock ER RPC through so the client's ER helpers are usable when set. */
 
 import { Connection } from "@solana/web3.js";
 import { CreditsClient } from "@slop/program-client";

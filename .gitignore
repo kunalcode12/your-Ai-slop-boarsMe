@@ -25,6 +25,11 @@ test-ledger/
 *.keypair.json
 wallet-keypair.json
 server-keypair.json
+# program keypair backup (controls program upgrades — keep it, never commit)
+credits-program-keypair.backup.json
+
+# vendored crate sources (temporary; downloaded during the ER/session-keys upgrade)
+.vendor/
 
 # supabase local
 supabase/.branches/

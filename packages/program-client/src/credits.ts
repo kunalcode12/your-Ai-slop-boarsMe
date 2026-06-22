@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/credits.json`.
  */
 export type Credits = {
-  "address": "FunwpPA4fah5czxHfhbDD6iQE9L3wPUvuEzUkd5gL6Fv",
+  "address": "2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U",
   "metadata": {
     "name": "credits",
     "version": "0.1.0",
@@ -14,10 +14,224 @@ export type Credits = {
   },
   "instructions": [
     {
+      "name": "commitPlayer",
+      "docs": [
+        "Commit the delegated Player PDA's current state back to devnet (stays delegated)."
+      ],
+      "discriminator": [
+        240,
+        196,
+        120,
+        93,
+        216,
+        101,
+        42,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "player",
+          "writable": true
+        },
+        {
+          "name": "magicProgram",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magicContext",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegatePlayer",
+      "docs": [
+        "Delegate the Player PDA to the ephemeral rollup. An optional ER validator",
+        "pubkey may be supplied as the first remaining account; otherwise any",
+        "validator may pick it up."
+      ],
+      "discriminator": [
+        235,
+        159,
+        245,
+        102,
+        161,
+        199,
+        254,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority"
+        },
+        {
+          "name": "bufferPda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                18,
+                95,
+                166,
+                105,
+                155,
+                56,
+                195,
+                214,
+                60,
+                221,
+                222,
+                174,
+                124,
+                190,
+                79,
+                240,
+                211,
+                73,
+                142,
+                8,
+                3,
+                172,
+                226,
+                136,
+                106,
+                169,
+                61,
+                152,
+                125,
+                81,
+                42,
+                179
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegationRecordPda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegationProgram"
+            }
+          }
+        },
+        {
+          "name": "delegationMetadataPda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegationProgram"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "writable": true
+        },
+        {
+          "name": "ownerProgram",
+          "address": "2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U"
+        },
+        {
+          "name": "delegationProgram",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "earn",
       "docs": [
         "Earn 1 credit for an accepted answer. Earned credits may exceed the refill",
-        "cap (the cap only limits passive accrual; you actively earned these)."
+        "cap (the cap only limits passive accrual; you actively earned these).",
+        "Authorized by a valid session key OR the player/server authority fallback."
       ],
       "discriminator": [
         120,
@@ -75,6 +289,10 @@ export type Credits = {
         {
           "name": "signer",
           "signer": true
+        },
+        {
+          "name": "sessionToken",
+          "optional": true
         }
       ],
       "args": []
@@ -209,6 +427,43 @@ export type Credits = {
       "args": []
     },
     {
+      "name": "processUndelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "baseAccount",
+          "writable": true
+        },
+        {
+          "name": "buffer"
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "systemProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "accountSeeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
       "name": "refill",
       "docs": [
         "Passive refill: if at least `refill_interval` seconds have elapsed, add",
@@ -270,6 +525,10 @@ export type Credits = {
         {
           "name": "signer",
           "signer": true
+        },
+        {
+          "name": "sessionToken",
+          "optional": true
         }
       ],
       "args": []
@@ -335,6 +594,10 @@ export type Credits = {
         {
           "name": "signer",
           "signer": true
+        },
+        {
+          "name": "sessionToken",
+          "optional": true
         }
       ],
       "args": [
@@ -347,7 +610,8 @@ export type Credits = {
     {
       "name": "spend",
       "docs": [
-        "Spend `amount` credits (a prompt submission). Errors if balance is too low."
+        "Spend `amount` credits (a prompt submission). Errors if balance is too low.",
+        "Authorized by a valid session key OR the player/server authority fallback."
       ],
       "discriminator": [
         242,
@@ -405,6 +669,10 @@ export type Credits = {
         {
           "name": "signer",
           "signer": true
+        },
+        {
+          "name": "sessionToken",
+          "optional": true
         }
       ],
       "args": [
@@ -413,6 +681,43 @@ export type Credits = {
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "undelegatePlayer",
+      "docs": [
+        "Commit and undelegate the Player PDA (return ownership to this program on devnet)."
+      ],
+      "discriminator": [
+        230,
+        242,
+        176,
+        199,
+        120,
+        26,
+        119,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "player",
+          "writable": true
+        },
+        {
+          "name": "magicProgram",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magicContext",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -584,6 +889,30 @@ export type Credits = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sessionToken",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "targetProgram",
+            "type": "pubkey"
+          },
+          {
+            "name": "sessionSigner",
+            "type": "pubkey"
+          },
+          {
+            "name": "validUntil",
+            "type": "i64"
           }
         ]
       }

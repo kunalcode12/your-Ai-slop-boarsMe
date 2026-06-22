@@ -136,6 +136,10 @@ export class CreditsClient {
       config: this.configPda(),
       player: this.playerPda(authority),
       signer: this.serverKeypair.publicKey,
+      // Optional session-key account. The server signs as server_authority (the
+      // fallback branch of `#[session_auth_or]`), so no session token is passed.
+      // `null` => Anchor encodes the optional account as None.
+      sessionToken: null,
     };
   }
 

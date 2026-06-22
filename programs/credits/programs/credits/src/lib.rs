@@ -3,26 +3,40 @@
 //! This program is the SOURCE OF TRUTH for player credit balances. Everything
 //! else (queue, prompts, drawings, timers) is off-chain; only credits live here.
 //!
-//! TRUST MODEL (MVP / plain devnet)
-//! --------------------------------
-//! `Config.server_authority` is the backend's keypair. It is the trusted referee:
+//! TRUST MODEL
+//! -----------
+//! `Config.server_authority` is the backend's keypair — the trusted referee:
 //!   * `init_player` may ONLY be signed by `server_authority` (anti-sybil: stops
 //!     anyone from minting free starting credits into keypairs they generate).
-//!   * `refill`/`spend`/`earn`/`refund` accept EITHER the player's own authority
-//!     (or its session key, in ER mode) OR the `server_authority`. In plain MVP
-//!     mode the backend signs these on the player's behalf so users never see a
-//!     wallet popup. As we move to ER + session keys the player can sign directly.
+//!   * `refill`/`refund` accept EITHER the player's own authority OR `server_authority`.
+//!   * `spend`/`earn` accept the player's authority, the `server_authority`, OR a
+//!     valid **session key** registered for the player (see SESSION KEYS below). In
+//!     plain MVP mode the backend signs on the player's behalf so users never see a
+//!     wallet popup; with session keys + ER the player (or its session key) can sign
+//!     spend/earn directly and gaslessly on the ephemeral rollup.
 //! Costs/intervals/caps are seeded from @slop/shared constants at `init_config`
 //! time — @slop/shared remains the canonical reference for those numbers.
 //!
-//! EPHEMERAL ROLLUP (ER) FALLBACK SWITCH
-//! ------------------------------------
-//! The core program compiles and runs on PLAIN DEVNET with no MagicBlock deps.
-//! Delegation / commit / undelegate live behind the `er` Cargo feature (see the
-//! bottom of this file). PROMPT 4 runs plain-devnet mode first; ER is a separate,
-//! opt-in pass. The app must never be blocked on ER.
+//! SESSION KEYS (MagicBlock `session-keys` 3.1.1) — ALWAYS ON
+//! ---------------------------------------------------------
+//! `Mutate` derives `Session` and carries an optional `session_token`. `spend`/`earn`
+//! are wrapped with `#[session_auth_or(..)]`: if a `session_token` is supplied it is
+//! validated (PDA + expiry + matching authority) and authorizes the action; otherwise
+//! the fallback expression (player authority OR server authority) is required. A
+//! player registers a session key once via the session program
+//! (KeyspM2ssCJbqUhQ4k7sveSiY4WjnYsrXkC8oDbwde5) and can then sign many spend/earn
+//! txs with the ephemeral session keypair — no popups.
+//!
+//! EPHEMERAL ROLLUP (ER) — `er` Cargo feature
+//! ------------------------------------------
+//! The core program compiles and runs on PLAIN DEVNET. `delegate_player` /
+//! `commit_player` / `undelegate_player` (behind `--features er`) hand a Player PDA
+//! to the MagicBlock delegation program so spend/earn execute on the ER (gasless,
+//! ~real-time) and settle back to devnet on commit/undelegate. Toolchain: Anchor
+//! 1.0.2 + Solana 3.1.10 + ephemeral-rollups-sdk 0.15.5 (anchor-modern path).
 
 use anchor_lang::prelude::*;
+use session_keys::{session_auth_or, Session, SessionError, SessionToken};
 
 #[cfg(feature = "er")]
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
@@ -31,7 +45,7 @@ use ephemeral_rollups_sdk::cpi::DelegateConfig;
 #[cfg(feature = "er")]
 use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 
-declare_id!("FunwpPA4fah5czxHfhbDD6iQE9L3wPUvuEzUkd5gL6Fv");
+declare_id!("2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U");
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const PLAYER_SEED: &[u8] = b"player";
@@ -108,10 +122,13 @@ pub mod credits {
     }
 
     /// Spend `amount` credits (a prompt submission). Errors if balance is too low.
+    /// Authorized by a valid session key OR the player/server authority fallback.
+    #[session_auth_or(
+        ctx.accounts.player.authority == ctx.accounts.signer.key()
+            || ctx.accounts.config.server_authority == ctx.accounts.signer.key(),
+        CreditsError::Unauthorized
+    )]
     pub fn spend(ctx: Context<Mutate>, amount: u64) -> Result<()> {
-        let config = &ctx.accounts.config;
-        require_authorized(&ctx.accounts.signer, &ctx.accounts.player, config)?;
-
         let player = &mut ctx.accounts.player;
         require!(player.balance >= amount, CreditsError::InsufficientCredits);
 
@@ -128,10 +145,13 @@ pub mod credits {
 
     /// Earn 1 credit for an accepted answer. Earned credits may exceed the refill
     /// cap (the cap only limits passive accrual; you actively earned these).
+    /// Authorized by a valid session key OR the player/server authority fallback.
+    #[session_auth_or(
+        ctx.accounts.player.authority == ctx.accounts.signer.key()
+            || ctx.accounts.config.server_authority == ctx.accounts.signer.key(),
+        CreditsError::Unauthorized
+    )]
     pub fn earn(ctx: Context<Mutate>) -> Result<()> {
-        let config = &ctx.accounts.config;
-        require_authorized(&ctx.accounts.signer, &ctx.accounts.player, config)?;
-
         let player = &mut ctx.accounts.player;
         player.balance = player
             .balance
@@ -160,11 +180,13 @@ pub mod credits {
     // -----------------------------------------------------------------------
     // ER MODE instructions (feature = "er"). Delegate a Player PDA to the
     // ephemeral rollup, commit its state back to devnet, and undelegate.
-    // While delegated, spend/earn execute on the ER (gasless, ~<50ms) against
-    // the same account; state settles to devnet on commit/undelegate.
+    // While delegated, spend/earn execute on the ER (gasless, ~real-time)
+    // against the same account; state settles to devnet on commit/undelegate.
     // -----------------------------------------------------------------------
 
-    /// Delegate the Player PDA to the ephemeral rollup.
+    /// Delegate the Player PDA to the ephemeral rollup. An optional ER validator
+    /// pubkey may be supplied as the first remaining account; otherwise any
+    /// validator may pick it up.
     #[cfg(feature = "er")]
     pub fn delegate_player(ctx: Context<DelegatePlayer>) -> Result<()> {
         ctx.accounts.delegate_pda(
@@ -209,9 +231,10 @@ pub mod credits {
 // Authority helper
 // ---------------------------------------------------------------------------
 
-/// spend/earn/refund/refill are authorized by the player's own authority OR the
-/// trusted server authority. (In ER mode a registered session key signs as the
-/// authority — see SESSION KEYS note below.)
+/// refill/refund are authorized by the player's own authority OR the trusted server
+/// authority. (spend/earn additionally accept a session key — handled by the
+/// `#[session_auth_or]` attribute, which checks the session token before falling back
+/// to this same authority/server condition.)
 fn require_authorized(signer: &Signer, player: &Player, config: &Config) -> Result<()> {
     let k = signer.key();
     require!(
@@ -261,7 +284,11 @@ pub struct InitPlayer<'info> {
 
 /// Shared accounts for refill/spend/earn/refund. `player` is located via its own
 /// stored `authority`, so the backend doesn't need to pass it separately.
-#[derive(Accounts)]
+///
+/// Derives `Session`: the optional `session_token` lets a registered session key
+/// authorize spend/earn for `player.authority` (validated by `#[session_auth_or]`).
+/// When omitted (`None`) the player/server-authority fallback applies.
+#[derive(Accounts, Session)]
 pub struct Mutate<'info> {
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Account<'info, Config>,
@@ -272,6 +299,13 @@ pub struct Mutate<'info> {
     )]
     pub player: Account<'info, Player>,
     pub signer: Signer<'info>,
+    #[session(
+        // the session signer of this transaction
+        signer = signer,
+        // the on-chain authority the session must have been registered for
+        authority = player.authority.key()
+    )]
+    pub session_token: Option<Account<'info, SessionToken>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +373,8 @@ pub enum CreditsError {
 // ===========================================================================
 
 /// Delegate the Player PDA. `#[delegate]` injects the delegation buffer/record/
-/// metadata/program accounts; `del` marks the PDA being delegated.
+/// metadata + owner_program/delegation_program/system_program accounts and a
+/// `delegate_pda(..)` helper; `del` marks the PDA being delegated.
 #[cfg(feature = "er")]
 #[delegate]
 #[derive(Accounts)]
@@ -347,13 +382,14 @@ pub struct DelegatePlayer<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: player authority, used to derive the Player PDA seeds.
-    pub authority: AccountInfo<'info>,
+    pub authority: UncheckedAccount<'info>,
     /// CHECK: the Player PDA being delegated (validated by seeds inside the SDK).
     #[account(mut, del)]
-    pub pda: AccountInfo<'info>,
+    pub pda: UncheckedAccount<'info>,
 }
 
-/// Commit / undelegate. `#[commit]` wires the MagicBlock context + program.
+/// Commit / undelegate. `#[commit]` injects `magic_program` (typed) and
+/// `magic_context` (address-checked) for the MagicBlock magic program CPI.
 #[cfg(feature = "er")]
 #[commit]
 #[derive(Accounts)]
@@ -362,41 +398,5 @@ pub struct CommitPlayer<'info> {
     pub payer: Signer<'info>,
     /// CHECK: the delegated Player PDA whose state is being committed.
     #[account(mut)]
-    pub player: AccountInfo<'info>,
-    /// CHECK: MagicBlock magic context account.
-    pub magic_context: AccountInfo<'info>,
-    /// CHECK: MagicBlock magic program.
-    pub magic_program: AccountInfo<'info>,
+    pub player: UncheckedAccount<'info>,
 }
-
-// ===========================================================================
-// SESSION KEYS (deferred — documented integration)
-// ===========================================================================
-//
-// To let a player approve ONCE and have a session key sign spend/earn on the ER
-// without popups, add the MagicBlock `session-keys` crate (latest 3.1.1) and:
-// (NOTE: like ephemeral-rollups-sdk 0.15.5, session-keys targets Anchor 1.0 /
-//  Solana 3.x — it will not link against anchor-lang 0.32.1. Enabling it requires
-//  the same Anchor 1.0 + Solana 3.x migration as the `er` feature.)
-//
-//   use session_keys::{Session, SessionError, SessionToken, session_auth_or};
-//
-//   #[derive(Accounts, Session)]
-//   pub struct Mutate<'info> {
-//       // ...config + player...
-//       pub signer: Signer<'info>,
-//       #[session(signer = signer, authority = player.authority.key())]
-//       pub session_token: Option<Account<'info, SessionToken>>,
-//   }
-//
-//   // on spend/earn:
-//   #[session_auth_or(
-//       ctx.accounts.player.authority == ctx.accounts.signer.key()
-//           || ctx.accounts.config.server_authority == ctx.accounts.signer.key(),
-//       CreditsError::Unauthorized
-//   )]
-//   pub fn spend(ctx: Context<Mutate>, amount: u64) -> Result<()> { /* ... */ }
-//
-// This is intentionally NOT enabled yet: it alters the spend/earn account layout
-// and requires the session-keys program available on the target cluster. It is a
-// clean, separable follow-up to the `er` pass and does not block plain devnet.
