@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: theme("colors.ink");
+  color: theme("colors.paper");
+  font-family: var(--font-comic), "Comic Sans MS", "Comic Neue", cursive;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* chunky focus rings — keep it accessible */
+*:focus-visible {
+  outline: 3px solid theme("colors.slop2");
+  outline-offset: 2px;
+}
+
+/* respect users who don't want motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* drawing canvas shouldn't scroll the page on touch */
+.touch-none {
+  touch-action: none;
+}
