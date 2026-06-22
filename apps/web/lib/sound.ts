@@ -1,4 +1,4 @@
-/** tiny early-internet blips via WebAudio (no asset files). respects a mute flag. */
+/** tiny early-internet blips via WebAudio (no asset files). shared mute flag. */
 
 "use client";
 
@@ -9,10 +9,23 @@ const MUTE_KEY = "slop-muted";
 export type Blip = "submit" | "plus" | "timeout" | "ping";
 
 let ctx: AudioContext | null = null;
+let muted = true; // module-level so every useSound instance agrees
+const subscribers = new Set<() => void>();
+
+function setMutedGlobal(v: boolean): void {
+  muted = v;
+  try {
+    localStorage.setItem(MUTE_KEY, v ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  subscribers.forEach((f) => f());
+}
 
 function tone(freq: number, durMs: number, type: OscillatorType = "square"): void {
   try {
-    ctx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    ctx ??= new (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = type;
@@ -46,27 +59,25 @@ function playRaw(blip: Blip): void {
 }
 
 export function useSound() {
-  const [muted, setMuted] = useState(true); // default muted; user opts in
+  const [m, setM] = useState(muted);
 
   useEffect(() => {
-    const v = localStorage.getItem(MUTE_KEY);
-    if (v !== null) setMuted(v === "1");
+    const stored = localStorage.getItem(MUTE_KEY);
+    if (stored !== null) {
+      muted = stored === "1";
+    }
+    setM(muted);
+    const onChange = () => setM(muted);
+    subscribers.add(onChange);
+    return () => {
+      subscribers.delete(onChange);
+    };
   }, []);
 
-  const toggle = useCallback(() => {
-    setMuted((m) => {
-      const next = !m;
-      localStorage.setItem(MUTE_KEY, next ? "1" : "0");
-      return next;
-    });
+  const toggle = useCallback(() => setMutedGlobal(!muted), []);
+  const play = useCallback((blip: Blip) => {
+    if (!muted) playRaw(blip);
   }, []);
 
-  const play = useCallback(
-    (blip: Blip) => {
-      if (!muted) playRaw(blip);
-    },
-    [muted],
-  );
-
-  return { muted, toggle, play };
+  return { muted: m, toggle, play };
 }

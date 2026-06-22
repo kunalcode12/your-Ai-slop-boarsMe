@@ -5,6 +5,7 @@
  * module memory for optional future signing (the PROMPT-4 challenge is reserved).
  */
 
+import "./polyfill"; // must run before web3.js (Buffer global)
 import { Keypair } from "@solana/web3.js";
 import { idbGet, idbSet } from "./idb";
 
