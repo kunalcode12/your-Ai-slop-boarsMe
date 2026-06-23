@@ -81,6 +81,7 @@ export interface Db {
   banPlayer(playerId: string): Promise<void>;
   createPrompt(input: CreatePromptInput): Promise<PromptRow>;
   claimNextPromptForAnswerer(answererId: string): Promise<PromptRow | null>;
+  hasOwnQueuedPrompt(playerId: string): Promise<boolean>;
   expireStalePrompts(): Promise<PromptRow[]>;
   markPromptAnswered(promptId: string): Promise<void>;
   releasePromptToQueue(promptId: string, newExpiresAt: Date): Promise<void>;

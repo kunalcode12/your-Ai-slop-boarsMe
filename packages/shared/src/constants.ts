@@ -47,9 +47,10 @@ export const PROMPT_EXPIRY_MS = 5 * 60_000; // 5 minutes
 
 /**
  * Cooldown applied to an answerer who claimed work then ghosted (disconnect /
- * let the timer run out). Deters claim-and-ghost griefing.
+ * let the timer run out). Deters claim-and-ghost griefing while still letting a
+ * genuine (just-too-slow) answerer rejoin quickly.
  */
-export const CLAIM_COOLDOWN_MS = 30_000; // 30 seconds
+export const CLAIM_COOLDOWN_MS = 10_000; // 10 seconds
 
 // ---------------------------------------------------------------------------
 // Rate limits (per player) — basic anti-bot / anti-spam

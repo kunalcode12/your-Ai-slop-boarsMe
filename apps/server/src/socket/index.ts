@@ -5,7 +5,7 @@ import { pubkeySchema, presenceModeSchema, SocketEvents } from "@slop/shared";
 import { isAppError } from "../errors";
 import type { Services, TypedSocket } from "../types";
 import { submitPrompt, requestWork, submitAnswer, report } from "./handlers";
-import { doHandshake, releaseClaim } from "./lifecycle";
+import { doHandshake, releaseClaim, deliverAnswer } from "./lifecycle";
 
 function emitError(services: Services, socket: TypedSocket, e: unknown): void {
   if (e instanceof ZodError) {
@@ -62,22 +62,23 @@ export function registerSocket(services: Services): void {
         broadcastPresence();
       });
 
-      let session;
+      let hs;
       try {
-        session = await doHandshake(services, socket, pubkey);
+        hs = await doHandshake(services, socket, pubkey);
       } catch (e) {
         log.error({ err: String(e), pubkey }, "handshake failed");
         socket.emit(SocketEvents.Error, { code: "internal_error", message: "couldn't load your account 💀" });
         return;
       }
-      if (!session) return; // rejected (banned) + already disconnected
+      if (!hs) return; // rejected (banned) + already disconnected
+      const { session, statePayload } = hs;
 
-      // count this client (default to the "human" tab) + push live counts
+      // count this client (default to the "human" tab)
       presence.setSocketMode(socket.id, "human");
-      socket.emit(SocketEvents.PresenceUpdate, presence.liveCounts()); // snappy initial value
-      broadcastPresence();
 
-      // --- per-connection handler registration (each wrapped) ---
+      // --- register handlers FIRST, so the client can safely act the instant it
+      // receives player:state (otherwise a fast prompt:submit / work:request can
+      // land before the listeners exist and get silently dropped) ---
       const run = (fn: () => Promise<void>): void => {
         fn().catch((e) => emitError(services, socket, e));
       };
@@ -86,8 +87,6 @@ export function registerSocket(services: Services): void {
       socket.on(SocketEvents.WorkRequest, (p) => run(() => requestWork(services, socket, session, p)));
       socket.on(SocketEvents.AnswerSubmit, (p) => run(() => submitAnswer(services, socket, session, p)));
       socket.on(SocketEvents.Report, (p) => run(() => report(services, socket, session, p)));
-
-      // live online counts: client tells us which tab it's on
       socket.on(SocketEvents.PresenceMode, (p) => {
         try {
           const { mode } = presenceModeSchema.parse(p);
@@ -97,6 +96,19 @@ export function registerSocket(services: Services): void {
           /* ignore malformed presence pings — they're non-critical */
         }
       });
+
+      // --- NOW signal readiness + live counts (handlers are live) ---
+      socket.emit(SocketEvents.PlayerState, statePayload);
+      socket.emit(SocketEvents.PresenceUpdate, presence.liveCounts());
+      broadcastPresence();
+
+      // deliver anything that arrived while the player was offline
+      try {
+        const undelivered = await services.db.getUndeliveredAnswersForRequester(session.playerId);
+        for (const a of undelivered) await deliverAnswer(services, a, pubkey);
+      } catch (e) {
+        log.error({ err: String(e), pubkey }, "undelivered backfill failed");
+      }
     })();
   });
 }

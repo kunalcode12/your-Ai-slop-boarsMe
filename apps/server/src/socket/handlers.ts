@@ -111,7 +111,11 @@ export async function requestWork(
     // atomic claim (excludes own prompts, already-claimed, expired)
     const claimed = await db.claimNextPromptForAnswerer(session.playerId);
     if (!claimed) {
-      socket.emit(SocketEvents.WorkNone, { reason: "empty_queue" });
+      // distinguish "nothing waiting" from "the only thing waiting is YOUR own
+      // prompt" — you can't be the ai for your own question. The latter is common
+      // when one person tests both tabs in the same browser (same burner identity).
+      const onlyOwn = await db.hasOwnQueuedPrompt(session.playerId);
+      socket.emit(SocketEvents.WorkNone, { reason: onlyOwn ? "only_own" : "empty_queue" });
       return;
     }
     queue.remove(claimed.id);

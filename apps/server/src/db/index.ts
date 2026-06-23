@@ -37,6 +37,7 @@ export {
 export {
   createPrompt,
   claimNextPromptForAnswerer,
+  hasOwnQueuedPrompt,
   expireStalePrompts,
   markPromptAnswered,
   releasePromptToQueue,

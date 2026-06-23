@@ -42,6 +42,8 @@ interface SocketCtx {
   refillTargetAt: number | null;
   /** live online counts (everyone online, split human vs larp). */
   presence: PresenceUpdatePayload;
+  /** increments on every (re)connect — views watch it to re-sync their state. */
+  epoch: number;
   emit: <E extends keyof ClientToServerEvents>(
     event: E,
     ...args: Parameters<ClientToServerEvents[E]>
@@ -68,19 +70,26 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
     humans: 0,
     larpers: 0,
   });
+  const [epoch, setEpoch] = useState(0);
 
   useEffect(() => {
     const socket: ClientSocket = io(SERVER_URL, {
       auth: { pubkey }, // handshake contract; signature reserved (server doesn't verify yet)
-      transports: ["websocket"],
+      // default transports (polling → websocket upgrade): more robust than
+      // websocket-only, which can fail with "closed before established" and has no
+      // fallback. reconnection keeps us alive across drops / HMR.
       reconnection: true,
+      reconnectionDelay: 400,
     });
     socketRef.current = socket;
 
     const applyRefill = (ms: number, atCap: boolean) =>
       setRefillTargetAt(atCap ? null : Date.now() + ms);
 
-    socket.on("connect", () => setStatus("connected"));
+    socket.on("connect", () => {
+      setStatus("connected");
+      setEpoch((e) => e + 1); // (re)connect signal so views re-sync their state
+    });
     socket.on("disconnect", () => setStatus("disconnected"));
     socket.io.on("reconnect_attempt", () => setStatus("reconnecting"));
     socket.io.on("reconnect", () => setStatus("connected"));
@@ -130,10 +139,11 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
       maxCredits: MAX_CREDITS,
       refillTargetAt,
       presence,
+      epoch,
       emit,
       subscribe,
     }),
-    [status, ready, pubkey, player, credits, refillTargetAt, presence, emit, subscribe],
+    [status, ready, pubkey, player, credits, refillTargetAt, presence, epoch, emit, subscribe],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -45,6 +45,22 @@ export async function claimNextPromptForAnswerer(
 }
 
 /**
+ * Does this player have a queued prompt they wrote themselves? Used only to give
+ * a helpful "you can't answer your own prompt" hint when a claim comes back empty
+ * (common while testing both roles in one browser — same burner identity).
+ */
+export async function hasOwnQueuedPrompt(playerId: string): Promise<boolean> {
+  const { data, error } = await getDb()
+    .from("prompts")
+    .select("id")
+    .eq("status", "queued")
+    .eq("requester_id", playerId)
+    .limit(1);
+  if (error) throw new Error(`hasOwnQueuedPrompt: ${error.message}`);
+  return (data?.length ?? 0) > 0;
+}
+
+/**
  * Flip queued+overdue prompts to 'expired' and return them so the caller can
  * refund each requester (the refund is on-chain + applyCreditDelta).
  */

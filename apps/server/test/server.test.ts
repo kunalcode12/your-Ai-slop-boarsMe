@@ -199,6 +199,25 @@ describe("game server", () => {
     expect(claimed.length).toBe(1);
   });
 
+  it("can't be the ai for your OWN prompt → work:none reason 'only_own'", async () => {
+    // simulates one person testing both tabs in the same browser: the human tab
+    // and the larp tab share one burner identity (same pubkey), so the only thing
+    // queued is the player's own prompt — which the atomic claim excludes.
+    const rig = await newServer();
+    const pubkey = newPubkey();
+    const humanTab = connect(rig.url, pubkey);
+    const larpTab = connect(rig.url, pubkey); // SAME identity, different socket
+    await waitFor(humanTab, SocketEvents.PlayerState);
+    await waitFor(larpTab, SocketEvents.PlayerState);
+
+    humanTab.emit(SocketEvents.PromptSubmit, { type: "text", body: "hello what are you" });
+    await waitFor(humanTab, SocketEvents.PromptSubmitted);
+
+    larpTab.emit(SocketEvents.WorkRequest, {});
+    const none = await waitFor<{ reason: string }>(larpTab, SocketEvents.WorkNone);
+    expect(none.reason).toBe("only_own"); // not "empty_queue": gives the UI a real hint
+  });
+
   it("ghost/timeout → re-queue + cooldown + reputation hit", async () => {
     const rig = await newServer({ timings: { answerTimeLimitMs: 250, claimCooldownMs: 1000 } });
     const requester = connect(rig.url, newPubkey());
@@ -452,5 +471,29 @@ describe("game server", () => {
     answerer.emit(SocketEvents.WorkRequest, {});
     const assigned = await waitFor<{ prompt: { body: string } }>(answerer, SocketEvents.WorkAssigned);
     expect(assigned.prompt.body).toBe("anyone home?");
+  });
+
+  it("after a ghost + cooldown, the larper can reclaim the re-queued prompt", async () => {
+    const rig = await newServer({ timings: { answerTimeLimitMs: 250, claimCooldownMs: 400 } });
+    const requester = connect(rig.url, newPubkey());
+    const answerer = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    await waitFor(answerer, SocketEvents.PlayerState);
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "reclaim me" });
+    const submitted = await waitFor<{ promptId: string }>(requester, SocketEvents.PromptSubmitted);
+
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const first = await waitFor<{ prompt: { id: string } }>(answerer, SocketEvents.WorkAssigned);
+    expect(first.prompt.id).toBe(submitted.promptId);
+
+    // ghost it: never answer → claim times out (250ms) → re-queue + 400ms cooldown
+    await sleep(800);
+    expect(rig.db.prompts.get(submitted.promptId)?.status).toBe("queued");
+
+    // once the cooldown has passed, the larper rejoins and gets the SAME prompt
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const second = await waitFor<{ prompt: { id: string } }>(answerer, SocketEvents.WorkAssigned);
+    expect(second.prompt.id).toBe(submitted.promptId);
   });
 });

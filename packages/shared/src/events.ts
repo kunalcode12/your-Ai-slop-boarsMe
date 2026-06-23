@@ -94,7 +94,7 @@ export interface WorkAssignedPayload {
   deadlineAt: number;
 }
 
-export type WorkNoneReason = "empty_queue" | "rate_limited" | "cooldown";
+export type WorkNoneReason = "empty_queue" | "rate_limited" | "cooldown" | "only_own";
 
 export interface WorkNonePayload {
   reason: WorkNoneReason;

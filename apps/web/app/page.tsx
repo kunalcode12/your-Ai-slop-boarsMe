@@ -19,7 +19,7 @@ import { LarpView } from "@/components/LarpView";
 const TAB_KEY = "slop-tab";
 
 export default function Page() {
-  const { ready, emit } = useSocket();
+  const { ready, emit, epoch } = useSocket();
   const { muted, toggle } = useSound();
   const [tab, setTab] = useState<Tab>("human");
 
@@ -29,9 +29,10 @@ export default function Page() {
   }, []);
 
   // tell the server which tab we're on so it can publish live online counts
+  // (also re-sent on every reconnect via `epoch`).
   useEffect(() => {
     if (ready) emit(SocketEvents.PresenceMode, { mode: tab });
-  }, [ready, tab, emit]);
+  }, [ready, tab, emit, epoch]);
 
   const changeTab = (t: Tab) => {
     setTab(t);

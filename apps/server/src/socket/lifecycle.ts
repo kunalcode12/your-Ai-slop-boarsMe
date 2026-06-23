@@ -6,6 +6,7 @@ import {
   REPUTATION_SHADOW_THROTTLE_THRESHOLD,
   SocketEvents,
   type Player,
+  type PlayerStatePayload,
 } from "@slop/shared";
 import { rowToPublicPrompt } from "../db";
 import type { AnswerRow, PlayerRow } from "../db";
@@ -23,12 +24,17 @@ export function toPlayer(row: PlayerRow, session: PlayerSession): Player {
   };
 }
 
-/** Full connect sequence. Returns the session, or null if the socket was rejected. */
+/**
+ * Full connect sequence. Returns the session + the player:state payload to send,
+ * or null if the socket was rejected (banned). The caller emits player:state
+ * AFTER registering the event handlers, so the client can't fire an event into a
+ * window where the server isn't listening yet.
+ */
 export async function doHandshake(
   services: Services,
   socket: TypedSocket,
   pubkey: string,
-): Promise<PlayerSession | null> {
+): Promise<{ session: PlayerSession; statePayload: PlayerStatePayload } | null> {
   const { db, credits, presence } = services;
 
   const row = await db.upsertPlayerByPubkey(pubkey);
@@ -55,18 +61,16 @@ export async function doHandshake(
   await credits.applyDueRefill(session);
   session.shadowThrottled = session.reputation <= REPUTATION_SHADOW_THROTTLE_THRESHOLD;
 
-  socket.emit(SocketEvents.PlayerState, {
+  const statePayload: PlayerStatePayload = {
     player: toPlayer(row, session),
     refillCountdownMs: refillCountdownMs(session.lastRefillMs, session.credits),
     activePrompt: null,
     activeDeadlineAt: null,
-  });
+  };
 
-  // deliver anything that arrived while they were offline
-  const undelivered = await db.getUndeliveredAnswersForRequester(session.playerId);
-  for (const a of undelivered) await deliverAnswer(services, a, pubkey);
-
-  return session;
+  // NOTE: player:state is emitted by the caller AFTER handlers are registered;
+  // buffered-answer delivery also happens there (see registerSocket).
+  return { session, statePayload };
 }
 
 /** Deliver an answer to the requester (mints a signed URL for drawings). */

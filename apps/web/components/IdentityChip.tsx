@@ -8,9 +8,9 @@ export function IdentityChip() {
   return (
     <span
       className="rounded-full border border-ink-line bg-ink-soft px-2 py-0.5 text-[11px] text-paper-dim"
-      title={pubkey}
+      title={`auto guest wallet (stored in this browser) — this is your identity and holds your credits: ${pubkey}`}
     >
-      connected as {truncateKey(pubkey)}
+      guest {truncateKey(pubkey)}
     </span>
   );
 }

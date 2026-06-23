@@ -20,7 +20,20 @@ import { CountdownRing } from "@/components/CountdownRing";
 import { DrawingCanvas, type DrawingCanvasHandle } from "@/components/DrawingCanvas";
 import { Spinner } from "@/components/Spinner";
 
-type Phase = "requesting" | "working" | "none" | "submitting" | "accepted" | "timeout";
+/**
+ * Larp flow (opt-in):
+ *   idle   → you clicked into the tab; press "i'm ready" to join the queue
+ *   waiting→ in the queue; auto-claims work as soon as a human asks (work:available
+ *            push + an 8s safety poll). Never a dead end.
+ *   working→ you hold a prompt + a 60s timer; answer it
+ *   submitting/accepted → answer sent / +1 credit, then back to waiting
+ *   timeout→ ran out of time; auto-returns to waiting (kept in the queue)
+ */
+type Phase = "idle" | "waiting" | "working" | "submitting" | "accepted" | "timeout";
+
+const ACCEPTED_HOLD_MS = 1100;
+const TIMEOUT_HOLD_MS = 1800;
+const IDLE_POLL_MS = 8000; // safety re-check while waiting (under the claims rate limit)
 
 function base64Bytes(dataUrl: string): number {
   const b64 = dataUrl.split(",")[1] ?? "";
@@ -28,57 +41,86 @@ function base64Bytes(dataUrl: string): number {
 }
 
 export function LarpView() {
-  const { emit, subscribe, status } = useSocket();
+  const { emit, subscribe, status, epoch } = useSocket();
   const { toast } = useToast();
   const { play } = useSound();
 
-  const [phase, setPhase] = useState<Phase>("requesting");
+  const [phase, setPhase] = useState<Phase>("idle");
   const [assignment, setAssignment] = useState<{ prompt: PublicPrompt; deadlineAt: number } | null>(
     null,
   );
   const [text, setText] = useState("");
+  // shown while waiting when the only queued prompt is our own (can't self-answer)
+  const [waitHint, setWaitHint] = useState<string | null>(null);
   const canvasRef = useRef<DrawingCanvasHandle>(null);
-  const phaseRef = useRef<Phase>("requesting");
+  const phaseRef = useRef<Phase>("idle");
+  // absolute timestamps so the heartbeat below can drive transitions without
+  // depending on fragile per-phase effect timers.
+  const lastReqAt = useRef(0);
+  const transAt = useRef(0);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
     setPhase(p);
   }, []);
 
+  /** Join (or re-check) the queue: ask the server for a prompt to answer. */
   const requestWork = useCallback(() => {
     setAssignment(null);
     setText("");
-    setPhaseBoth("requesting");
+    setPhaseBoth("waiting");
+    lastReqAt.current = Date.now();
     emit(SocketEvents.WorkRequest, {});
   }, [emit, setPhaseBoth]);
 
-  // initial + subscriptions
+  /** Leave the queue, back to the ready gate. */
+  const stop = useCallback(() => {
+    setAssignment(null);
+    setText("");
+    setWaitHint(null);
+    setPhaseBoth("idle");
+  }, [setPhaseBoth]);
+
+  // subscriptions (mount once; uses phaseRef so it never needs re-binding)
   useEffect(() => {
-    requestWork();
     const offAssigned = subscribe(SocketEvents.WorkAssigned, (p: WorkAssignedPayload) => {
+      if (phaseRef.current === "idle") return; // we left the queue; ignore
       setAssignment({ prompt: p.prompt, deadlineAt: p.deadlineAt });
       setText("");
       setPhaseBoth("working");
       play("ping");
     });
-    const offNone = subscribe(SocketEvents.WorkNone, (_p: WorkNonePayload) => {
-      if (phaseRef.current === "requesting") setPhaseBoth("none");
+    // No work right now: stay in "waiting". If we're cooling down / rate-limited,
+    // line up the next heartbeat re-request for ~when the wait ends (so we don't
+    // poll uselessly meanwhile, and we retry crisply the moment it clears).
+    const offNone = subscribe(SocketEvents.WorkNone, (p: WorkNonePayload) => {
+      if (phaseRef.current !== "waiting") return;
+      if (p.retryAfterMs && p.retryAfterMs > 0) {
+        lastReqAt.current = Date.now() + p.retryAfterMs - IDLE_POLL_MS;
+      }
+      // the only thing queued is our OWN prompt — you can't be the ai for your own
+      // question. Tell the user how to actually test it (separate identity).
+      setWaitHint(
+        p.reason === "only_own"
+          ? "the only question waiting is your own — you can't be the ai for your own prompt. open this in a second browser or an incognito window to play both sides 💀"
+          : null,
+      );
     });
     const offCredits = subscribe(SocketEvents.CreditsUpdated, (c: CreditsUpdatedPayload) => {
       if (c.reason === "earn" && phaseRef.current === "submitting") {
+        transAt.current = Date.now();
         setPhaseBoth("accepted");
         play("plus");
-        setTimeout(requestWork, 1100);
       }
     });
     const offError = subscribe(SocketEvents.Error, (_e: ErrorPayload) => {
       // global toaster shows the message; here we just recover the larp flow
       if (phaseRef.current === "submitting") setPhaseBoth("working");
     });
-    // new work hit the queue → if we're idle, grab it (server's atomic claim
+    // new work hit the queue → if we're waiting, grab it (server's atomic claim
     // resolves races between multiple larpers).
     const offAvailable = subscribe(SocketEvents.WorkAvailable, () => {
-      if (phaseRef.current === "none") requestWork();
+      if (phaseRef.current === "waiting") requestWork();
     });
     return () => {
       offAssigned();
@@ -90,25 +132,45 @@ export function LarpView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // fallback while idle: re-check every 8s in case a work:available nudge was
-  // missed (e.g. it arrived mid-request). Comfortably under the claims rate limit.
+  const remaining = useCountdown(phase === "working" ? (assignment?.deadlineAt ?? null) : null);
+
+  // timer hit zero while working → too slow (just flip phase + stamp the time).
   useEffect(() => {
-    if (phase !== "none") return;
-    const id = setInterval(requestWork, 8000);
+    if (phase === "working" && assignment && remaining <= 0) {
+      transAt.current = Date.now();
+      setPhaseBoth("timeout");
+      play("timeout");
+    }
+  }, [phase, remaining, assignment, play, setPhaseBoth]);
+
+  // ONE robust driver for the whole "active" lifetime (everything except idle).
+  // It reads phaseRef + absolute timestamps, so re-renders/phase changes can never
+  // strand it (this is what previously left the larper stuck on "too slow"):
+  //  - waiting  → re-poll for work every IDLE_POLL_MS (also covers a missed nudge)
+  //  - timeout  → after TIMEOUT_HOLD_MS, rejoin the queue
+  //  - accepted → after ACCEPTED_HOLD_MS, rejoin the queue
+  useEffect(() => {
+    if (phase === "idle") return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      const p = phaseRef.current;
+      if (p === "waiting") {
+        if (now - lastReqAt.current >= IDLE_POLL_MS) requestWork();
+      } else if (p === "timeout" && now - transAt.current >= TIMEOUT_HOLD_MS) {
+        requestWork();
+      } else if (p === "accepted" && now - transAt.current >= ACCEPTED_HOLD_MS) {
+        requestWork();
+      }
+    }, 500);
     return () => clearInterval(id);
   }, [phase, requestWork]);
 
-  const remaining = useCountdown(phase === "working" ? (assignment?.deadlineAt ?? null) : null);
-
-  // timer hit zero while working → too slow
+  // on (re)connect, re-sync: a reconnect gives us a brand-new server socket, so
+  // any in-flight claim/request from the old one is gone — rejoin the queue.
   useEffect(() => {
-    if (phase === "working" && assignment && remaining <= 0) {
-      setPhaseBoth("timeout");
-      play("timeout");
-      const id = setTimeout(requestWork, 1900);
-      return () => clearTimeout(id);
-    }
-  }, [phase, remaining, assignment, play, requestWork, setPhaseBoth]);
+    if (epoch > 0 && phaseRef.current !== "idle") requestWork();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch]);
 
   const submit = () => {
     if (!assignment || phase !== "working") return;
@@ -132,24 +194,46 @@ export function LarpView() {
     return <p className="text-center text-paper-dim">connecting…</p>;
   }
 
-  if (phase === "none") {
+  if (phase === "idle") {
     return (
       <div className="flex flex-col items-center gap-4 py-10 text-center">
-        <p className="text-xl text-paper-dim">no work yet — too many ais, not enough humans 💀</p>
+        <div className="text-5xl">🤖</div>
+        <p className="text-lg text-paper">
+          be the “ai”. a human will send a prompt — you have 60s to answer (or draw) it
+          convincingly and earn <span className="font-bold text-slime">+1⚡</span>.
+        </p>
         <button
           onClick={requestWork}
-          className="rounded-xl border-2 border-black bg-slop px-4 py-2 font-bold text-black shadow-chunk-sm"
+          className="rounded-xl border-2 border-black bg-slime px-6 py-3 text-lg font-bold text-black shadow-chunk"
         >
-          check again
+          i&apos;m ready to be the ai
         </button>
+        <p className="text-xs text-paper-dim">
+          you&apos;ll join the queue and get the next question automatically 💀
+        </p>
       </div>
     );
   }
 
-  if (phase === "requesting") {
+  if (phase === "waiting") {
     return (
-      <div className="flex items-center justify-center gap-3 py-12 text-paper-dim">
-        <Spinner /> finding you a human to impersonate an ai for…
+      <div className="flex flex-col items-center gap-4 py-12 text-center">
+        <div className="flex items-center justify-center gap-3 text-paper-dim">
+          <Spinner /> waiting for a human to need an ai… 💀
+        </div>
+        {waitHint ? (
+          <p className="max-w-xs rounded-xl border-2 border-black bg-slop px-3 py-2 text-xs font-bold text-black">
+            {waitHint}
+          </p>
+        ) : (
+          <p className="text-xs text-paper-dim">you&apos;re in the queue — the next prompt lands here automatically</p>
+        )}
+        <button
+          onClick={stop}
+          className="rounded-lg border-2 border-black bg-ink-soft px-3 py-1 text-sm font-bold text-paper-dim hover:text-paper"
+        >
+          stop
+        </button>
       </div>
     );
   }
@@ -158,6 +242,7 @@ export function LarpView() {
     return (
       <div className="py-12 text-center text-xl text-danger">
         too slow! sam altman burned your H100 💀
+        <div className="mt-2 text-sm text-paper-dim">back in the queue…</div>
       </div>
     );
   }
