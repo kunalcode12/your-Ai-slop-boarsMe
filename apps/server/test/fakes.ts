@@ -13,6 +13,7 @@ import type {
   AnswerRow,
   ReportRow,
   ReportTargetType,
+  ReportStatus,
   CreatePromptInput,
   CreateAnswerInput,
   CreateReportInput,
@@ -186,6 +187,9 @@ export class FakeDb implements Db {
     if (p) p.answers_given += 1;
     return row;
   }
+  async getAnswerById(id: string): Promise<AnswerRow | null> {
+    return this.answers.get(id) ?? null;
+  }
   async markAnswerDelivered(answerId: string): Promise<void> {
     const a = this.answers.get(answerId);
     if (a) a.delivered = true;
@@ -221,6 +225,24 @@ export class FakeDb implements Db {
   ): Promise<boolean> {
     const n = await this.countReportsForTarget(targetType, targetId);
     if (n < threshold) return false;
+    await this.hideTarget(targetType, targetId);
+    return true;
+  }
+
+  async listReports(status: ReportStatus | "all" = "open", limit = 100): Promise<ReportRow[]> {
+    return this.reports
+      .filter((r) => status === "all" || r.status === status)
+      .slice(-limit)
+      .reverse();
+  }
+  async getReportById(id: string): Promise<ReportRow | null> {
+    return this.reports.find((r) => r.id === id) ?? null;
+  }
+  async setReportStatus(id: string, status: ReportStatus): Promise<void> {
+    const r = this.reports.find((x) => x.id === id);
+    if (r) r.status = status;
+  }
+  async hideTarget(targetType: ReportTargetType, targetId: string): Promise<void> {
     if (targetType === "answer") {
       const a = this.answers.get(targetId);
       if (a) a.flagged = true;
@@ -228,7 +250,6 @@ export class FakeDb implements Db {
       const p = this.prompts.get(targetId);
       if (p) p.status = "flagged";
     }
-    return true;
   }
 }
 

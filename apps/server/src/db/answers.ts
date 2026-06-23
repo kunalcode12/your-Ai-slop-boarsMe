@@ -38,6 +38,17 @@ export async function createAnswer(
   return data[0] ?? null;
 }
 
+/** Fetch a single answer by id (used to find the answerer when a report hides it). */
+export async function getAnswerById(id: string): Promise<AnswerRow | null> {
+  const { data, error } = await getDb()
+    .from("answers")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getAnswerById: ${error.message}`);
+  return data ?? null;
+}
+
 export async function markAnswerDelivered(answerId: string): Promise<void> {
   const { error } = await getDb()
     .from("answers")

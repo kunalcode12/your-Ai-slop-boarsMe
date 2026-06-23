@@ -15,6 +15,10 @@ export type PromptType = (typeof PROMPT_TYPES)[number];
 export const ANSWER_TYPES = ["text", "image"] as const;
 export type AnswerType = (typeof ANSWER_TYPES)[number];
 
+/** Which mode a connected client is currently in (drives the live online counts). */
+export const CLIENT_MODES = ["human", "larp"] as const;
+export type ClientMode = (typeof CLIENT_MODES)[number];
+
 export const PROMPT_STATUSES = [
   "queued", // waiting in the queue, unclaimed
   "claimed", // an answerer has it; 60s timer running

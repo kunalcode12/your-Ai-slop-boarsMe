@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SocketEvents } from "@slop/shared";
 import { useSocket } from "@/hooks/useSocket";
 import { useSound } from "@/lib/sound";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -11,13 +12,14 @@ import { IdentityChip } from "@/components/IdentityChip";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 import { DisconnectBanner } from "@/components/DisconnectBanner";
 import { ErrorToaster } from "@/components/Toasts";
+import { OnlineCounter } from "@/components/OnlineCounter";
 import { HumanView } from "@/components/HumanView";
 import { LarpView } from "@/components/LarpView";
 
 const TAB_KEY = "slop-tab";
 
 export default function Page() {
-  const { ready } = useSocket();
+  const { ready, emit } = useSocket();
   const { muted, toggle } = useSound();
   const [tab, setTab] = useState<Tab>("human");
 
@@ -25,6 +27,11 @@ export default function Page() {
     const saved = localStorage.getItem(TAB_KEY);
     if (saved === "human" || saved === "larp") setTab(saved);
   }, []);
+
+  // tell the server which tab we're on so it can publish live online counts
+  useEffect(() => {
+    if (ready) emit(SocketEvents.PresenceMode, { mode: tab });
+  }, [ready, tab, emit]);
 
   const changeTab = (t: Tab) => {
     setTab(t);
@@ -59,6 +66,8 @@ export default function Page() {
             </button>
           </div>
         </header>
+
+        <OnlineCounter />
 
         <Tabs tab={tab} onChange={changeTab} />
 

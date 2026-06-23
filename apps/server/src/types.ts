@@ -8,6 +8,8 @@ import type {
   InterServerEvents,
   SocketData,
   CreditChangeReason,
+  ClientMode,
+  PresenceUpdatePayload,
 } from "@slop/shared";
 import type {
   PlayerRow,
@@ -15,6 +17,7 @@ import type {
   AnswerRow,
   ReportRow,
   ReportTargetType,
+  ReportStatus,
   CreatePromptInput,
   CreateAnswerInput,
   CreateReportInput,
@@ -85,6 +88,7 @@ export interface Db {
   listQueuedPrompts(): Promise<PromptRow[]>;
   listClaimedPrompts(): Promise<PromptRow[]>;
   createAnswer(input: CreateAnswerInput): Promise<AnswerRow | null>;
+  getAnswerById(id: string): Promise<AnswerRow | null>;
   markAnswerDelivered(answerId: string): Promise<void>;
   getUndeliveredAnswersForRequester(requesterId: string): Promise<AnswerRow[]>;
   createReport(input: CreateReportInput): Promise<ReportRow>;
@@ -94,6 +98,11 @@ export interface Db {
     targetId: string,
     threshold: number,
   ): Promise<boolean>;
+  // admin / mod-review surface
+  listReports(status?: ReportStatus | "all", limit?: number): Promise<ReportRow[]>;
+  getReportById(id: string): Promise<ReportRow | null>;
+  setReportStatus(id: string, status: ReportStatus): Promise<void>;
+  hideTarget(targetType: ReportTargetType, targetId: string): Promise<void>;
 }
 
 /**
@@ -168,6 +177,10 @@ export interface Presence {
   setSession(pubkey: string, session: PlayerSession): void;
   getSession(pubkey: string): PlayerSession | undefined;
   clearSession(pubkey: string): void;
+  // live online counts (per-socket mode tracking, drives presence:update)
+  setSocketMode(socketId: string, mode: ClientMode): void;
+  dropSocket(socketId: string): void;
+  liveCounts(): PresenceUpdatePayload;
 }
 
 /** Timing knobs (overridable in tests so the 60s timer can be shortened). */

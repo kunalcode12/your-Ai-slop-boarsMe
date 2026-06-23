@@ -1,10 +1,13 @@
 /** Online-state + per-player in-memory session registry. */
 
+import type { ClientMode, PresenceUpdatePayload } from "@slop/shared";
 import type { Presence, PlayerSession } from "../types";
 
 export class PresenceService implements Presence {
   private counts = new Map<string, number>();
   private sessions = new Map<string, PlayerSession>();
+  /** socketId -> current mode. One entry per connected client; drives live counts. */
+  private socketModes = new Map<string, ClientMode>();
 
   bind(pubkey: string): void {
     this.counts.set(pubkey, (this.counts.get(pubkey) ?? 0) + 1);
@@ -34,5 +37,23 @@ export class PresenceService implements Presence {
 
   clearSession(pubkey: string): void {
     this.sessions.delete(pubkey);
+  }
+
+  setSocketMode(socketId: string, mode: ClientMode): void {
+    this.socketModes.set(socketId, mode);
+  }
+
+  dropSocket(socketId: string): void {
+    this.socketModes.delete(socketId);
+  }
+
+  liveCounts(): PresenceUpdatePayload {
+    let humans = 0;
+    let larpers = 0;
+    for (const mode of this.socketModes.values()) {
+      if (mode === "larp") larpers += 1;
+      else humans += 1;
+    }
+    return { online: humans + larpers, humans, larpers };
   }
 }

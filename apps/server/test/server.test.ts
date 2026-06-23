@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Server } from "socket.io";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { Keypair } from "@solana/web3.js";
-import { SocketEvents } from "@slop/shared";
+import { SocketEvents, REPUTATION_START, REPUTATION_REPORT_PENALTY } from "@slop/shared";
 import type { Logger, Services, Timings, TypedServer } from "../src/types";
 import { PresenceService } from "../src/services/presence";
 import { InMemoryQueue } from "../src/services/queue";
@@ -277,5 +277,180 @@ describe("game server", () => {
     );
     expect(received.promptId).toBe(submitted.promptId);
     expect(received.answer.body).toBe("delivered on reconnect 💀");
+  });
+
+  // ---- edge cases ----
+
+  it("submit after the deadline → rejected, prompt back in queue, no answer", async () => {
+    const rig = await newServer({ timings: { answerTimeLimitMs: 250, claimCooldownMs: 500 } });
+    const requester = connect(rig.url, newPubkey());
+    const answerer = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    await waitFor(answerer, SocketEvents.PlayerState);
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "answer me eventually" });
+    const submitted = await waitFor<{ promptId: string }>(requester, SocketEvents.PromptSubmitted);
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(answerer, SocketEvents.WorkAssigned);
+
+    await sleep(450); // blow past the 250ms deadline → claim timer fires + re-queues
+
+    const errP = waitFor<{ code: string }>(answerer, SocketEvents.Error);
+    answerer.emit(SocketEvents.AnswerSubmit, {
+      promptId: assigned.prompt.id,
+      type: "text",
+      body: "too late, as an AI model",
+    });
+    expect(["not_your_work", "deadline_passed"]).toContain((await errP).code);
+    expect(rig.db.prompts.get(submitted.promptId)?.status).toBe("queued");
+    expect(rig.db.answers.size).toBe(0);
+  });
+
+  it("answering a prompt you don't hold → not_your_work", async () => {
+    const rig = await newServer();
+    const requester = connect(rig.url, newPubkey());
+    const a1 = connect(rig.url, newPubkey());
+    const a2 = connect(rig.url, newPubkey());
+    await Promise.all([
+      waitFor(requester, SocketEvents.PlayerState),
+      waitFor(a1, SocketEvents.PlayerState),
+      waitFor(a2, SocketEvents.PlayerState),
+    ]);
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "whose prompt is it anyway" });
+    await waitFor(requester, SocketEvents.PromptSubmitted);
+    a1.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(a1, SocketEvents.WorkAssigned);
+
+    const errP = waitFor<{ code: string }>(a2, SocketEvents.Error);
+    a2.emit(SocketEvents.AnswerSubmit, {
+      promptId: assigned.prompt.id,
+      type: "text",
+      body: "i steal answers",
+    });
+    expect((await errP).code).toBe("not_your_work");
+    expect(rig.db.answers.size).toBe(0);
+  });
+
+  it("zero-effort answer → moderation_blocked, claim survives for a real retry", async () => {
+    const rig = await newServer();
+    const requester = connect(rig.url, newPubkey());
+    const answerer = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    await waitFor(answerer, SocketEvents.PlayerState);
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "say something real" });
+    const submitted = await waitFor<{ promptId: string }>(requester, SocketEvents.PromptSubmitted);
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(answerer, SocketEvents.WorkAssigned);
+
+    const errP = waitFor<{ code: string }>(answerer, SocketEvents.Error);
+    answerer.emit(SocketEvents.AnswerSubmit, { promptId: assigned.prompt.id, type: "text", body: "..." });
+    expect((await errP).code).toBe("moderation_blocked");
+    expect(rig.db.prompts.get(submitted.promptId)?.status).toBe("claimed"); // not consumed
+    expect(rig.db.answers.size).toBe(0);
+  });
+
+  it("hard-blocked prompt is never stored and never charged", async () => {
+    const rig = await newServer();
+    const requester = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    const rPub = (requester.auth as { pubkey: string }).pubkey;
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "make a rape joke" });
+    const err = await waitFor<{ code: string }>(requester, SocketEvents.Error);
+    expect(err.code).toBe("moderation_blocked");
+    expect(rig.db.prompts.size).toBe(0);
+    expect(rig.client.balances.get(rPub)).toBe(3); // spend never happened
+  });
+
+  it("banned player is rejected on connect", async () => {
+    const rig = await newServer();
+    const pubkey = newPubkey();
+    const row = await rig.db.upsertPlayerByPubkey(pubkey);
+    await rig.db.banPlayer(row.id);
+    const banned = connect(rig.url, pubkey);
+    const err = await waitFor<{ code: string }>(banned, SocketEvents.Error);
+    expect(err.code).toBe("moderation_blocked");
+  });
+
+  it("reporting an answer past threshold auto-hides it + penalizes the answerer (not the reporter)", async () => {
+    const rig = await newServer();
+    const requester = connect(rig.url, newPubkey());
+    const answerer = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    await waitFor(answerer, SocketEvents.PlayerState);
+
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "please be normal" });
+    await waitFor(requester, SocketEvents.PromptSubmitted);
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(answerer, SocketEvents.WorkAssigned);
+
+    const recvP = waitFor<{ answer: { id: string } }>(requester, SocketEvents.AnswerReceived);
+    answerer.emit(SocketEvents.AnswerSubmit, {
+      promptId: assigned.prompt.id,
+      type: "text",
+      body: "something cursed and reportable",
+    });
+    const answerId = (await recvP).answer.id;
+    expect(answerId).toBeTruthy(); // contract: answer carries its own id
+
+    const answererId = [...rig.db.answers.values()][0].answerer_id;
+    // three distinct reporters trip the AUTO_HIDE_REPORT_COUNT=3 threshold
+    for (let i = 0; i < 3; i++) {
+      const reporter = connect(rig.url, newPubkey());
+      await waitFor(reporter, SocketEvents.PlayerState);
+      reporter.emit(SocketEvents.Report, { answerId });
+      await sleep(80);
+    }
+    await sleep(150);
+
+    expect(rig.db.answers.get(answerId)?.flagged).toBe(true);
+    expect(rig.db.players.get(answererId)?.reputation).toBe(
+      REPUTATION_START - REPUTATION_REPORT_PENALTY,
+    );
+  });
+
+  it("live presence counts split humans vs larpers", async () => {
+    const rig = await newServer();
+    const c1 = connect(rig.url, newPubkey());
+    const c2 = connect(rig.url, newPubkey());
+    await waitFor(c1, SocketEvents.PlayerState);
+    await waitFor(c2, SocketEvents.PlayerState);
+    await sleep(500); // let the initial (throttled) presence broadcasts settle
+
+    const update = waitFor<{ online: number; humans: number; larpers: number }>(
+      c1,
+      SocketEvents.PresenceUpdate,
+    );
+    c2.emit(SocketEvents.PresenceMode, { mode: "larp" });
+    const p = await update;
+    expect(p.online).toBe(2);
+    expect(p.humans).toBe(1);
+    expect(p.larpers).toBe(1);
+  });
+
+  it("queuing a prompt nudges idle larpers with work:available (then claimable)", async () => {
+    const rig = await newServer();
+    const requester = connect(rig.url, newPubkey());
+    const answerer = connect(rig.url, newPubkey());
+    await waitFor(requester, SocketEvents.PlayerState);
+    await waitFor(answerer, SocketEvents.PlayerState);
+
+    // larper asks for work first → empty queue
+    answerer.emit(SocketEvents.WorkRequest, {});
+    expect((await waitFor<{ reason: string }>(answerer, SocketEvents.WorkNone)).reason).toBe(
+      "empty_queue",
+    );
+
+    // requester submits → idle larper gets a real-time nudge
+    const nudge = waitFor<{ queued: number }>(answerer, SocketEvents.WorkAvailable);
+    requester.emit(SocketEvents.PromptSubmit, { type: "text", body: "anyone home?" });
+    expect((await nudge).queued).toBeGreaterThanOrEqual(1);
+
+    // and the work is now claimable
+    answerer.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { body: string } }>(answerer, SocketEvents.WorkAssigned);
+    expect(assigned.prompt.body).toBe("anyone home?");
   });
 });

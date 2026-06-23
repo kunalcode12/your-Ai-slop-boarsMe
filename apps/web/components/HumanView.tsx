@@ -20,6 +20,7 @@ import { Spinner } from "@/components/Spinner";
 
 type Phase = "idle" | "waiting" | "answered" | "expired";
 interface Received {
+  id: string;
   type: AnswerReceivedPayload["answer"]["type"];
   body: string | null;
   imageUrl: string | null;
@@ -45,7 +46,12 @@ export function HumanView() {
     });
     const offAnswer = subscribe(SocketEvents.AnswerReceived, (p: AnswerReceivedPayload) => {
       if (p.promptId !== pending.current) return;
-      setAnswer({ type: p.answer.type, body: p.answer.body, imageUrl: p.answer.imageUrl });
+      setAnswer({
+        id: p.answer.id,
+        type: p.answer.type,
+        body: p.answer.body,
+        imageUrl: p.answer.imageUrl,
+      });
       setPhase("answered");
       play("ping");
     });
@@ -85,7 +91,9 @@ export function HumanView() {
   };
 
   const reportAnswer = () => {
-    if (pending.current) emit(SocketEvents.Report, { promptId: pending.current });
+    // report THIS answer (answerId) — not the prompt — so moderation hides the
+    // answer and penalizes the answerer, never the requester (you).
+    if (answer?.id) emit(SocketEvents.Report, { answerId: answer.id });
     toast("reported. thanks for keeping it less cursed 💀", "good");
   };
 

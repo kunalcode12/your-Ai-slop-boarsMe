@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { PROMPT_TYPES, ANSWER_TYPES } from "./types";
+import { PROMPT_TYPES, ANSWER_TYPES, CLIENT_MODES } from "./types";
 import { MAX_PROMPT_LENGTH, MAX_ANSWER_LENGTH } from "./constants";
 
 /** Base58 Solana pubkey (32 bytes -> 43-44 chars; allow a small range). */
@@ -27,6 +27,10 @@ export type SubmitPromptInput = z.infer<typeof submitPromptSchema>;
 /** larp mode: ask for a prompt to answer. No fields today; kept for forward-compat. */
 export const requestWorkSchema = z.object({}).strict();
 export type RequestWorkInput = z.infer<typeof requestWorkSchema>;
+
+/** report which mode (tab) the client is in, for the live online counts. */
+export const presenceModeSchema = z.object({ mode: z.enum(CLIENT_MODES) }).strict();
+export type PresenceModeInput = z.infer<typeof presenceModeSchema>;
 
 /**
  * larp mode: submit an answer to a claimed prompt.

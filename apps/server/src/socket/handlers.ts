@@ -52,6 +52,10 @@ export async function submitPrompt(
   });
   queue.push(prompt.id);
 
+  // nudge idle larpers in real time so they pick up the new prompt without
+  // having to manually re-request work.
+  services.io.emit(SocketEvents.WorkAvailable, { queued: queue.size() });
+
   socket.emit(SocketEvents.PromptSubmitted, {
     promptId: prompt.id,
     status: "queued",
@@ -243,13 +247,14 @@ export async function report(
   const hidden = await db.hideTargetIfOverThreshold(targetType, targetId, AUTO_HIDE_REPORT_COUNT);
   if (hidden) {
     log.info({ targetType, targetId }, "auto-hid target over report threshold");
-    // penalize the author of a hidden prompt (answer-author lookup is a TODO:
-    // needs a getAnswerById in the data layer)
-    if (targetType === "prompt") {
-      const prompt = await db.getPromptById(targetId);
-      if (prompt) {
-        await db.adjustReputation(prompt.requester_id, -REPUTATION_REPORT_PENALTY).catch(() => {});
-      }
+    // penalize the AUTHOR of the hidden content: the requester for a prompt, the
+    // answerer for an answer (never the reporter).
+    const authorId =
+      targetType === "prompt"
+        ? (await db.getPromptById(targetId))?.requester_id
+        : (await db.getAnswerById(targetId))?.answerer_id;
+    if (authorId) {
+      await db.adjustReputation(authorId, -REPUTATION_REPORT_PENALTY).catch(() => {});
     }
   }
   // report is fire-and-forget; no ack event in the shared contract

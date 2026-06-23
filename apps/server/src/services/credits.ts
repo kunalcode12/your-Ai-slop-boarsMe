@@ -34,11 +34,21 @@ import type {
   TypedServer,
 } from "../types";
 
-const MAX_EARN_RETRIES = 5;
-const EARN_RETRY_INTERVAL_MS = 15_000;
+const MAX_CREDIT_RETRIES = 5;
+const CREDIT_RETRY_INTERVAL_MS = 15_000;
+
+/** A credit op (earn/refund) that failed on-chain and must be retried so the
+ *  player is never short-changed. (spend needs no retry: it's chain-first and the
+ *  caller aborts on failure, so nothing off-chain happened.) */
+interface CreditRetry {
+  target: CreditTarget;
+  kind: "earn" | "refund";
+  amount: number;
+  attempts: number;
+}
 
 export class ChainCreditsBridge implements CreditsBridge {
-  private earnRetries: { target: CreditTarget; attempts: number }[] = [];
+  private creditRetries: CreditRetry[] = [];
   private retryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -48,7 +58,7 @@ export class ChainCreditsBridge implements CreditsBridge {
     private readonly io: TypedServer,
     private readonly log: Logger,
   ) {
-    this.retryTimer = setInterval(() => void this.processEarnRetries(), EARN_RETRY_INTERVAL_MS);
+    this.retryTimer = setInterval(() => void this.processCreditRetries(), CREDIT_RETRY_INTERVAL_MS);
   }
 
   stop(): void {
@@ -146,37 +156,41 @@ export class ChainCreditsBridge implements CreditsBridge {
     } catch (e) {
       // Keep the answer; queue the earn for retry so the answerer isn't cheated.
       this.log.warn({ err: String(e), pubkey: target.pubkey }, "earn failed; queued for retry");
-      this.earnRetries.push({ target, attempts: 0 });
+      this.creditRetries.push({ target, kind: "earn", amount: CREDIT_REWARD_ANSWER, attempts: 0 });
     }
   }
 
   async refund(target: CreditTarget, amount: number): Promise<void> {
-    let sig: string;
     try {
-      sig = await this.client.refund(target.authority, amount);
+      const sig = await this.client.refund(target.authority, amount);
+      await this.mirror(target, amount, "refund", sig);
     } catch (e) {
-      this.log.error({ err: String(e), pubkey: target.pubkey }, "on-chain refund failed");
-      throw new AppError("chain_error", "refund failed");
+      // Never strand the requester's credit on a transient chain failure: queue it
+      // for retry (same guarantee as earn). The chain remains the source of truth.
+      this.log.warn({ err: String(e), pubkey: target.pubkey }, "refund failed; queued for retry");
+      this.creditRetries.push({ target, kind: "refund", amount, attempts: 0 });
     }
-    await this.mirror(target, amount, "refund", sig);
   }
 
-  private async processEarnRetries(): Promise<void> {
-    const pending = this.earnRetries;
-    this.earnRetries = [];
+  private async processCreditRetries(): Promise<void> {
+    const pending = this.creditRetries;
+    this.creditRetries = [];
     for (const item of pending) {
       try {
-        const sig = await this.client.earn(item.target.authority);
-        await this.mirror(item.target, CREDIT_REWARD_ANSWER, "earn", sig);
-        this.log.info({ pubkey: item.target.pubkey }, "earn retry succeeded");
+        const sig =
+          item.kind === "earn"
+            ? await this.client.earn(item.target.authority)
+            : await this.client.refund(item.target.authority, item.amount);
+        await this.mirror(item.target, item.amount, item.kind, sig);
+        this.log.info({ pubkey: item.target.pubkey, kind: item.kind }, "credit retry succeeded");
       } catch (e) {
         item.attempts += 1;
-        if (item.attempts < MAX_EARN_RETRIES) {
-          this.earnRetries.push(item);
+        if (item.attempts < MAX_CREDIT_RETRIES) {
+          this.creditRetries.push(item);
         } else {
           this.log.error(
-            { err: String(e), pubkey: item.target.pubkey },
-            "earn permanently failed after retries",
+            { err: String(e), pubkey: item.target.pubkey, kind: item.kind },
+            "credit op permanently failed after retries",
           );
         }
       }

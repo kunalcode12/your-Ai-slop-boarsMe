@@ -1,7 +1,7 @@
 /** Socket.IO wiring: handshake, per-connection handler registration, errors. */
 
 import { ZodError } from "zod";
-import { pubkeySchema, SocketEvents } from "@slop/shared";
+import { pubkeySchema, presenceModeSchema, SocketEvents } from "@slop/shared";
 import { isAppError } from "../errors";
 import type { Services, TypedSocket } from "../types";
 import { submitPrompt, requestWork, submitAnswer, report } from "./handlers";
@@ -18,16 +18,23 @@ function emitError(services: Services, socket: TypedSocket, e: unknown): void {
   }
 }
 
-function onDisconnect(services: Services, socket: TypedSocket, pubkey: string): void {
-  services.presence.unbind(pubkey);
-  // any prompt this socket was answering goes back to the queue (treated as a ghost)
-  for (const claim of services.timers.getBySocket(socket.id)) {
-    void releaseClaim(services, claim, { penalize: true });
-  }
-}
-
 export function registerSocket(services: Services): void {
-  const { io, log } = services;
+  const { io, log, presence } = services;
+
+  // Throttled live-counts broadcast — coalesces connect/mode/disconnect storms so
+  // a reconnect flood can't spam every client (at most one emit per ~400ms).
+  let presenceTimer: ReturnType<typeof setTimeout> | null = null;
+  const broadcastPresence = (): void => {
+    if (presenceTimer) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = null;
+      try {
+        io.emit(SocketEvents.PresenceUpdate, presence.liveCounts());
+      } catch {
+        /* presence is non-critical; ignore (e.g. server shutting down) */
+      }
+    }, 400);
+  };
 
   io.on("connection", (socket: TypedSocket) => {
     void (async () => {
@@ -43,8 +50,17 @@ export function registerSocket(services: Services): void {
       // (optional ownership signature can be verified here later)
       socket.data.pubkey = pubkey;
       await socket.join(pubkey);
-      services.presence.bind(pubkey);
-      socket.on("disconnect", () => onDisconnect(services, socket, pubkey));
+      presence.bind(pubkey);
+
+      socket.on("disconnect", () => {
+        presence.unbind(pubkey);
+        presence.dropSocket(socket.id);
+        // any prompt this socket was answering goes back to the queue (ghost)
+        for (const claim of services.timers.getBySocket(socket.id)) {
+          void releaseClaim(services, claim, { penalize: true });
+        }
+        broadcastPresence();
+      });
 
       let session;
       try {
@@ -56,6 +72,11 @@ export function registerSocket(services: Services): void {
       }
       if (!session) return; // rejected (banned) + already disconnected
 
+      // count this client (default to the "human" tab) + push live counts
+      presence.setSocketMode(socket.id, "human");
+      socket.emit(SocketEvents.PresenceUpdate, presence.liveCounts()); // snappy initial value
+      broadcastPresence();
+
       // --- per-connection handler registration (each wrapped) ---
       const run = (fn: () => Promise<void>): void => {
         fn().catch((e) => emitError(services, socket, e));
@@ -65,6 +86,17 @@ export function registerSocket(services: Services): void {
       socket.on(SocketEvents.WorkRequest, (p) => run(() => requestWork(services, socket, session, p)));
       socket.on(SocketEvents.AnswerSubmit, (p) => run(() => submitAnswer(services, socket, session, p)));
       socket.on(SocketEvents.Report, (p) => run(() => report(services, socket, session, p)));
+
+      // live online counts: client tells us which tab it's on
+      socket.on(SocketEvents.PresenceMode, (p) => {
+        try {
+          const { mode } = presenceModeSchema.parse(p);
+          presence.setSocketMode(socket.id, mode);
+          broadcastPresence();
+        } catch {
+          /* ignore malformed presence pings — they're non-critical */
+        }
+      });
     })();
   });
 }

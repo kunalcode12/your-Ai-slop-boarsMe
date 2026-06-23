@@ -48,6 +48,7 @@ export {
 
 export {
   createAnswer,
+  getAnswerById,
   markAnswerDelivered,
   getUndeliveredAnswersForRequester,
   type CreateAnswerInput,
@@ -57,5 +58,9 @@ export {
   createReport,
   countReportsForTarget,
   hideTargetIfOverThreshold,
+  listReports,
+  getReportById,
+  setReportStatus,
+  hideTarget,
   type CreateReportInput,
 } from "./reports";

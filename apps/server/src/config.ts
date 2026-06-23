@@ -23,6 +23,9 @@ const envSchema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().default("slop-drawings"),
   PORT: z.coerce.number().int().positive().default(8080),
   CLIENT_ORIGIN: z.string().default("http://localhost:3000"),
+  // Bearer token guarding the /admin moderation endpoints. If unset, /admin is
+  // disabled (returns 503) — safe default for local dev.
+  ADMIN_TOKEN: z.string().optional().default(""),
 });
 
 export interface AppConfig {
@@ -34,6 +37,7 @@ export interface AppConfig {
   storageBucket: string;
   port: number;
   clientOrigin: string;
+  adminToken: string;
   serverKeypair: Keypair;
 }
 
@@ -66,6 +70,7 @@ export function loadConfig(): AppConfig {
     storageBucket: env.SUPABASE_STORAGE_BUCKET,
     port: env.PORT,
     clientOrigin: env.CLIENT_ORIGIN,
+    adminToken: env.ADMIN_TOKEN,
     serverKeypair,
   };
 }

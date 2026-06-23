@@ -13,6 +13,7 @@ import { loadConfig } from "./config";
 import { createLogger } from "./log";
 import { createServices } from "./services";
 import { registerSocket } from "./socket";
+import { registerAdminRoutes } from "./admin/routes";
 import { bootRecovery, expirySweep } from "./socket/lifecycle";
 
 const EXPIRY_SWEEP_INTERVAL_MS = 30_000;
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
   >(app.server, { cors: { origin: config.clientOrigin } });
 
   const { services, shutdown } = createServices(config, io, log);
+
+  // protected moderation REST surface (no-op/503 unless ADMIN_TOKEN is set)
+  registerAdminRoutes(app, services, config.adminToken);
 
   await bootRecovery(services);
   registerSocket(services);

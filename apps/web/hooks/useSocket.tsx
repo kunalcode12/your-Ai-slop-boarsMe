@@ -25,6 +25,7 @@ import {
   type Player,
   type PlayerStatePayload,
   type CreditsUpdatedPayload,
+  type PresenceUpdatePayload,
 } from "@slop/shared";
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -39,6 +40,8 @@ interface SocketCtx {
   maxCredits: number;
   /** epoch ms of the next refill tick, or null if at cap / unknown. */
   refillTargetAt: number | null;
+  /** live online counts (everyone online, split human vs larp). */
+  presence: PresenceUpdatePayload;
   emit: <E extends keyof ClientToServerEvents>(
     event: E,
     ...args: Parameters<ClientToServerEvents[E]>
@@ -60,6 +63,11 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
   const [player, setPlayer] = useState<Player | null>(null);
   const [credits, setCredits] = useState(0);
   const [refillTargetAt, setRefillTargetAt] = useState<number | null>(null);
+  const [presence, setPresence] = useState<PresenceUpdatePayload>({
+    online: 0,
+    humans: 0,
+    larpers: 0,
+  });
 
   useEffect(() => {
     const socket: ClientSocket = io(SERVER_URL, {
@@ -88,6 +96,8 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
       setCredits(c.credits);
       applyRefill(c.refillCountdownMs, c.credits >= MAX_CREDITS);
     });
+
+    socket.on(SocketEvents.PresenceUpdate, (p: PresenceUpdatePayload) => setPresence(p));
 
     return () => {
       socket.removeAllListeners();
@@ -119,10 +129,11 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
       credits,
       maxCredits: MAX_CREDITS,
       refillTargetAt,
+      presence,
       emit,
       subscribe,
     }),
-    [status, ready, pubkey, player, credits, refillTargetAt, emit, subscribe],
+    [status, ready, pubkey, player, credits, refillTargetAt, presence, emit, subscribe],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

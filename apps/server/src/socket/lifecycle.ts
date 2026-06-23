@@ -83,6 +83,7 @@ export async function deliverAnswer(
     services.io.to(requesterPubkey).emit(SocketEvents.AnswerReceived, {
       promptId: answer.prompt_id,
       answer: {
+        id: answer.id,
         type: answer.type,
         body: answer.body_text,
         imageUrl,
@@ -101,11 +102,13 @@ export async function releaseClaim(
   info: ClaimInfo,
   opts: { penalize: boolean },
 ): Promise<void> {
-  const { db, queue, timers, timings, log } = services;
+  const { db, queue, timers, timings, log, io } = services;
   timers.clear(info.promptId);
   try {
     await db.releasePromptToQueue(info.promptId, new Date(Date.now() + timings.promptExpiryMs));
     queue.push(info.promptId);
+    // a re-queued prompt is available again — nudge idle larpers
+    io.emit(SocketEvents.WorkAvailable, { queued: queue.size() });
     if (opts.penalize) {
       await db.setClaimCooldown(info.answererId, new Date(Date.now() + timings.claimCooldownMs));
       await db.adjustReputation(info.answererId, -REPUTATION_GHOST_PENALTY);

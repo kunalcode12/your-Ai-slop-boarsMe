@@ -26,11 +26,16 @@ import {
   listClaimedPrompts,
   getPromptById,
   createAnswer,
+  getAnswerById,
   markAnswerDelivered,
   getUndeliveredAnswersForRequester,
   createReport,
   countReportsForTarget,
   hideTargetIfOverThreshold,
+  listReports,
+  getReportById,
+  setReportStatus,
+  hideTarget,
 } from "../db";
 import { createCreditsClient } from "../chain/client";
 import { PresenceService } from "./presence";
@@ -61,11 +66,16 @@ const realDb: Db = {
   listClaimedPrompts,
   getPromptById,
   createAnswer,
+  getAnswerById,
   markAnswerDelivered,
   getUndeliveredAnswersForRequester,
   createReport,
   countReportsForTarget,
   hideTargetIfOverThreshold,
+  listReports,
+  getReportById,
+  setReportStatus,
+  hideTarget,
 };
 
 export interface BuiltServer {

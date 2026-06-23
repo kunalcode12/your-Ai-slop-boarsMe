@@ -18,6 +18,7 @@ import type {
   RequestWorkInput,
   SubmitAnswerInput,
   ReportInput,
+  PresenceModeInput,
 } from "./schemas";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,8 @@ export const SocketEvents = {
   WorkAssigned: "work:assigned",
   /** server -> client: no work available (empty queue / throttled). */
   WorkNone: "work:none",
+  /** server -> client: new work just hit the queue — idle larpers should re-request. */
+  WorkAvailable: "work:available",
 
   /** client -> server: submit an answer to a claimed prompt. */
   AnswerSubmit: "answer:submit",
@@ -53,6 +56,11 @@ export const SocketEvents = {
 
   /** client -> server: report a prompt or answer for moderation. */
   Report: "report",
+
+  /** client -> server: tell the server which mode (tab) you're in, for live counts. */
+  PresenceMode: "presence:mode",
+  /** server -> client: live online counts (everyone online, split human vs larp). */
+  PresenceUpdate: "presence:update",
 
   /** server -> client: a friendly, client-facing error. */
   Error: "error",
@@ -94,9 +102,17 @@ export interface WorkNonePayload {
   retryAfterMs?: number;
 }
 
+/** Pushed when a prompt enters the queue, so idle larpers re-request immediately. */
+export interface WorkAvailablePayload {
+  /** current number of prompts waiting in the queue. */
+  queued: number;
+}
+
 export interface AnswerReceivedPayload {
   promptId: string;
   answer: {
+    /** Answer id — lets the requester report THIS answer (not the prompt). */
+    id: string;
     type: AnswerType;
     body: string | null;
     imageUrl: string | null;
@@ -107,6 +123,16 @@ export interface AnswerReceivedPayload {
 export interface PromptExpiredPayload {
   promptId: string;
   refundedCredits: number;
+}
+
+/** Live presence counts. `online` == `humans` + `larpers` (one mode per client). */
+export interface PresenceUpdatePayload {
+  /** total connected clients (open sessions). */
+  online: number;
+  /** clients currently on the "human" (ask the ai) tab. */
+  humans: number;
+  /** clients currently on the "larp" (be the ai) tab. */
+  larpers: number;
 }
 
 export type CreditChangeReason = "spend" | "earn" | "refill" | "refund";
@@ -145,9 +171,11 @@ export interface ServerToClientEvents {
   "prompt:submitted": (payload: PromptSubmittedPayload) => void;
   "work:assigned": (payload: WorkAssignedPayload) => void;
   "work:none": (payload: WorkNonePayload) => void;
+  "work:available": (payload: WorkAvailablePayload) => void;
   "answer:received": (payload: AnswerReceivedPayload) => void;
   "prompt:expired": (payload: PromptExpiredPayload) => void;
   "credits:updated": (payload: CreditsUpdatedPayload) => void;
+  "presence:update": (payload: PresenceUpdatePayload) => void;
   "error": (payload: ErrorPayload) => void;
 }
 
@@ -156,6 +184,7 @@ export interface ClientToServerEvents {
   "work:request": (payload: RequestWorkInput) => void;
   "answer:submit": (payload: SubmitAnswerInput) => void;
   "report": (payload: ReportInput) => void;
+  "presence:mode": (payload: PresenceModeInput) => void;
 }
 
 /** Per-socket data the server attaches after the handshake. */

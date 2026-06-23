@@ -75,14 +75,28 @@ export function LarpView() {
       // global toaster shows the message; here we just recover the larp flow
       if (phaseRef.current === "submitting") setPhaseBoth("working");
     });
+    // new work hit the queue → if we're idle, grab it (server's atomic claim
+    // resolves races between multiple larpers).
+    const offAvailable = subscribe(SocketEvents.WorkAvailable, () => {
+      if (phaseRef.current === "none") requestWork();
+    });
     return () => {
       offAssigned();
       offNone();
       offCredits();
       offError();
+      offAvailable();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // fallback while idle: re-check every 8s in case a work:available nudge was
+  // missed (e.g. it arrived mid-request). Comfortably under the claims rate limit.
+  useEffect(() => {
+    if (phase !== "none") return;
+    const id = setInterval(requestWork, 8000);
+    return () => clearInterval(id);
+  }, [phase, requestWork]);
 
   const remaining = useCountdown(phase === "working" ? (assignment?.deadlineAt ?? null) : null);
 
