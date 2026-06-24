@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const log = createLogger();
 
   const app = Fastify({ logger: false });
-  await app.register(cors, { origin: config.clientOrigin });
+  await app.register(cors, { origin: config.clientOrigins });
   app.get("/health", async () => ({ ok: true, ts: Date.now() }));
 
   const io = new Server<
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     ServerToClientEvents,
     InterServerEvents,
     SocketData
-  >(app.server, { cors: { origin: config.clientOrigin } });
+  >(app.server, { cors: { origin: config.clientOrigins } });
 
   const { services, shutdown } = createServices(config, io, log);
 

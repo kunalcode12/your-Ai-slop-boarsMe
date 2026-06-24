@@ -15,6 +15,11 @@ loadDotenv({ path: resolve(here, "../../../.env") });
 const envSchema = z.object({
   SOLANA_RPC_URL: z.string().url(),
   MAGICBLOCK_RPC_URL: z.string().optional().default(""),
+  // Activate MagicBlock ER: when "true" (and MAGICBLOCK_RPC_URL is set) the bridge
+  // delegates each connected player's PDA to the ephemeral rollup and runs
+  // spend/earn/refund/refill there (gasless/real-time), settling on disconnect.
+  // Defaults OFF so the plain-devnet path is the safe default everywhere.
+  MAGICBLOCK_ER_ENABLED: z.string().optional().default("false"),
   PROGRAM_ID: z.string().min(32),
   SERVER_KEYPAIR_PATH: z.string().optional(),
   SERVER_KEYPAIR_SECRET: z.string().optional(),
@@ -31,12 +36,17 @@ const envSchema = z.object({
 export interface AppConfig {
   solanaRpcUrl: string;
   magicblockRpcUrl: string;
+  erEnabled: boolean;
   programId: string;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   storageBucket: string;
   port: number;
+  /** Raw CLIENT_ORIGIN value (for logging). */
   clientOrigin: string;
+  /** Allowed browser origins for CORS + Socket.IO (CLIENT_ORIGIN may be a
+   *  comma-separated list, e.g. prod domain + Vercel preview URLs). */
+  clientOrigins: string[];
   adminToken: string;
   serverKeypair: Keypair;
 }
@@ -64,12 +74,14 @@ export function loadConfig(): AppConfig {
   return {
     solanaRpcUrl: env.SOLANA_RPC_URL,
     magicblockRpcUrl: env.MAGICBLOCK_RPC_URL,
+    erEnabled: env.MAGICBLOCK_ER_ENABLED.toLowerCase() === "true" && env.MAGICBLOCK_RPC_URL !== "",
     programId: env.PROGRAM_ID,
     supabaseUrl: env.SUPABASE_URL,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     storageBucket: env.SUPABASE_STORAGE_BUCKET,
     port: env.PORT,
     clientOrigin: env.CLIENT_ORIGIN,
+    clientOrigins: env.CLIENT_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean),
     adminToken: env.ADMIN_TOKEN,
     serverKeypair,
   };

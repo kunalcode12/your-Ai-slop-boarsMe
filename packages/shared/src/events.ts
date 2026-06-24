@@ -83,6 +83,8 @@ export interface PlayerStatePayload {
   activePrompt: PublicPrompt | null;
   /** Deadline (epoch ms) for `activePrompt`, if any. */
   activeDeadlineAt: number | null;
+  /** Whether this server routes credits through the MagicBlock ER (UI badge). */
+  erActive?: boolean;
 }
 
 export interface PromptSubmittedPayload {
@@ -140,10 +142,16 @@ export interface PresenceUpdatePayload {
 
 export type CreditChangeReason = "spend" | "earn" | "refill" | "refund";
 
+/** Where the credit transaction was executed. "er" = MagicBlock ephemeral rollup
+ *  (gasless / ~real-time), "devnet" = plain Solana devnet. */
+export type CreditVia = "er" | "devnet";
+
 export interface CreditsUpdatedPayload {
   credits: number;
   reason: CreditChangeReason;
   refillCountdownMs: number;
+  /** execution venue — drives the "⚡ via MagicBlock" UI notification. */
+  via?: CreditVia;
 }
 
 /** Stable, client-displayable error codes. Messages are lowercase + meme-y. */

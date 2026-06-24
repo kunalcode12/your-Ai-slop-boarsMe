@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import clsx from "clsx";
-import { SocketEvents, type ErrorPayload } from "@slop/shared";
+import { SocketEvents, type ErrorPayload, type CreditsUpdatedPayload } from "@slop/shared";
 import { useSocket } from "@/hooks/useSocket";
 
 type ToastKind = "error" | "info" | "good";
@@ -68,6 +68,31 @@ export function ErrorToaster() {
       const extra =
         e.code === "insufficient_credits" ? " — go larp as an ai to earn some" : "";
       toast(e.message + extra, "error");
+    });
+  }, [subscribe, toast]);
+  return null;
+}
+
+/**
+ * Notifies whenever a credit change was executed on the MagicBlock ephemeral
+ * rollup (via === "er") — i.e. asking (−1) or answering (+1) settled gaslessly on
+ * the ER. Mount inside both providers.
+ */
+export function MagicBlockToaster() {
+  const { subscribe } = useSocket();
+  const { toast } = useToast();
+  useEffect(() => {
+    return subscribe(SocketEvents.CreditsUpdated, (c: CreditsUpdatedPayload) => {
+      if (c.via !== "er") return; // only announce rollup-executed changes
+      const what =
+        c.reason === "spend"
+          ? "−1 credit (spent)"
+          : c.reason === "earn"
+            ? "+1 credit (earned)"
+            : c.reason === "refund"
+              ? "credit refunded"
+              : "credit refilled";
+      toast(`⚡ MagicBlock · ${what} on the rollup`, c.reason === "spend" ? "info" : "good");
     });
   }, [subscribe, toast]);
   return null;

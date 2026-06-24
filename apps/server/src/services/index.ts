@@ -97,7 +97,8 @@ export function createServices(config: AppConfig, io: TypedServer, log: Logger):
   const rateLimits = new TokenBucketLimiter();
   const moderation = new BasicModeration();
   const storage = new SupabaseStorage(getDb() as unknown as SupabaseClient, config.storageBucket);
-  const credits = new ChainCreditsBridge(client, realDb, presence, io, log);
+  const credits = new ChainCreditsBridge(client, realDb, presence, io, log, config.erEnabled);
+  if (config.erEnabled) log.info({ erRpc: config.magicblockRpcUrl }, "MagicBlock ER mode ENABLED");
 
   const services: Services = {
     io,

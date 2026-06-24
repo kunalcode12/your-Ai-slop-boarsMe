@@ -1,0 +1,46 @@
+# Render Blueprint for the game server (apps/server): Fastify + Socket.IO + chain
+# bridge. Realtime, single-instance, always-on. Frontend deploys separately on
+# Vercel. Create via Render → "New +" → "Blueprint" pointed at this repo, then
+# fill the `sync: false` secrets in the dashboard.
+services:
+  - type: web
+    name: slop-server
+    runtime: node
+    # IMPORTANT: realtime Socket.IO needs an always-on instance. The free plan
+    # spins down on idle and kills every websocket — use "starter" (or higher).
+    plan: starter
+    # Singapore is closest to the Supabase project (ap-southeast-1) — low DB latency.
+    region: singapore
+    # ONE instance only: the queue + 60s claim timers live in memory and there is
+    # no Redis Socket.IO adapter yet. Do NOT scale horizontally.
+    numInstances: 1
+    healthCheckPath: /health
+    autoDeploy: true
+    # --prod=false forces devDependencies (tsc) to be installed for the build step.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @slop/shared build && pnpm --filter @slop/program-client build
+    startCommand: pnpm --filter @slop/server start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # --- secrets / per-env: set these in the Render dashboard ---
+      - key: SOLANA_RPC_URL # use a dedicated devnet RPC (Helius/Triton), NOT the public one
+        sync: false
+      - key: SERVER_KEYPAIR_SECRET # base58 of server-keypair.json (see deploy guide)
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CLIENT_ORIGIN # your Vercel URL(s), comma-separated, no trailing slash
+        sync: false
+      - key: ADMIN_TOKEN # long random string (or omit to disable /admin)
+        sync: false
+      # --- non-secret defaults ---
+      - key: MAGICBLOCK_RPC_URL
+        value: https://devnet.magicblock.app
+      - key: MAGICBLOCK_ER_ENABLED
+        value: "true"
+      - key: PROGRAM_ID
+        value: 2Eiw45DD1dd39ZQ5eRcMnY9zj4Qd5uYnKVxnjfEe9B1U
+      - key: SUPABASE_STORAGE_BUCKET
+        value: slop-drawings

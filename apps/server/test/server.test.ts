@@ -40,6 +40,7 @@ const clients: ClientSocket[] = [];
 async function newServer(opts?: {
   startingBalance?: number;
   timings?: Partial<Timings>;
+  er?: boolean;
 }): Promise<TestRig> {
   const http: HttpServer = createServer();
   const io = new Server(http, { cors: { origin: "*" } }) as unknown as TypedServer;
@@ -58,6 +59,7 @@ async function newServer(opts?: {
     presence,
     io,
     silent,
+    opts?.er ?? false,
   );
 
   const timings: Timings = {
@@ -302,6 +304,42 @@ describe("game server", () => {
 
     expect(rig.db.prompts.get(sub.promptId)?.status).toBe("expired");
     expect(rig.client.balances.get(hPub)).toBe(3); // refunded
+  });
+
+  it("ER mode: players get delegated, and spend/earn run on the rollup (via=er)", async () => {
+    const rig = await newServer({ er: true });
+    const human = connect(rig.url, newPubkey());
+    const larper = connect(rig.url, newPubkey());
+    await waitFor(human, SocketEvents.PlayerState);
+    await waitFor(larper, SocketEvents.PlayerState);
+    const hPub = (human.auth as { pubkey: string }).pubkey;
+    const lPub = (larper.auth as { pubkey: string }).pubkey;
+
+    // delegation runs in the background right after connect
+    await sleep(200);
+    expect(rig.client.delegated.has(hPub)).toBe(true);
+    expect(rig.client.delegated.has(lPub)).toBe(true);
+
+    // human asks → spend executes ON THE ER
+    const spent = waitFor<{ reason: string; via?: string }>(human, SocketEvents.CreditsUpdated);
+    const submitted = waitFor<{ promptId: string }>(human, SocketEvents.PromptSubmitted);
+    human.emit(SocketEvents.PromptSubmit, { type: "text", body: "er flow" });
+    const sp = await spent;
+    expect(sp.reason).toBe("spend");
+    expect(sp.via).toBe("er");
+    const sub = await submitted;
+
+    // larper answers → earn executes ON THE ER
+    larper.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(larper, SocketEvents.WorkAssigned);
+    expect(assigned.prompt.id).toBe(sub.promptId);
+    const earned = waitFor<{ reason: string; via?: string }>(larper, SocketEvents.CreditsUpdated);
+    const recv = waitFor(human, SocketEvents.AnswerReceived);
+    larper.emit(SocketEvents.AnswerSubmit, { promptId: sub.promptId, type: "text", body: "as an ai, hi" });
+    const ea = await earned;
+    expect(ea.reason).toBe("earn");
+    expect(ea.via).toBe("er");
+    await recv;
   });
 
   it("re-queue caps expiry at original lifetime (no immortal 'zombie' prompts)", async () => {

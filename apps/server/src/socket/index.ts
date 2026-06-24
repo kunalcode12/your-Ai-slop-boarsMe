@@ -107,7 +107,14 @@ export function registerSocket(services: Services): void {
           pubkey,
           setTimeout(() => {
             leaveTimers.delete(pubkey);
-            if (!presence.isOnline(pubkey)) void cancelRequesterQueuedPrompts(services, session);
+            if (presence.isOnline(pubkey)) return;
+            void (async () => {
+              // settle the player's ER state back to devnet FIRST (so the refund
+              // below runs against the un-delegated, devnet-owned account), then
+              // drop their still-queued prompts + refund.
+              await services.credits.undelegateIfNeeded(session);
+              await cancelRequesterQueuedPrompts(services, session);
+            })();
           }, LEAVE_GRACE_MS),
         );
       });
@@ -149,6 +156,10 @@ export function registerSocket(services: Services): void {
       } catch (e) {
         log.error({ err: String(e), pubkey }, "undelivered backfill failed");
       }
+
+      // MagicBlock ER: delegate this player's PDA to the rollup in the background
+      // (no-op unless ER is enabled). Subsequent spend/earn then run on the ER.
+      void services.credits.ensureDelegated(session);
     })();
   });
 }

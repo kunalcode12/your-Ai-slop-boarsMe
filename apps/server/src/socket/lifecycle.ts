@@ -66,6 +66,7 @@ export async function doHandshake(
     refillCountdownMs: refillCountdownMs(session.lastRefillMs, session.credits),
     activePrompt: null,
     activeDeadlineAt: null,
+    erActive: credits.erActive,
   };
 
   // NOTE: player:state is emitted by the caller AFTER handlers are registered;

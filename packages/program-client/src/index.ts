@@ -39,6 +39,14 @@ export { BN } from "@coral-xyz/anchor";
 export const CONFIG_SEED = Buffer.from("config");
 export const PLAYER_SEED = Buffer.from("player");
 
+/** MagicBlock delegation program — once a PDA is delegated, this becomes its owner. */
+export const DELEGATION_PROGRAM_ID = new PublicKey(
+  "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
+);
+/** Fixed MagicBlock accounts for commit/undelegate (from the IDL). */
+export const MAGIC_PROGRAM_ID = new PublicKey("Magic11111111111111111111111111111111111111");
+export const MAGIC_CONTEXT_ID = new PublicKey("MagicContext1111111111111111111111111111111");
+
 /** Decoded Player account (credits are small, safely represented as numbers). */
 export interface PlayerAccount {
   authority: PublicKey;
@@ -95,6 +103,8 @@ export class CreditsClient {
   readonly serverKeypair: Keypair;
   readonly programId: PublicKey;
   private readonly ephemeralConnection: Connection | null;
+  /** Program bound to the ER RPC — spend/earn/etc. sent here run on the rollup. */
+  private readonly erProgram: Program<Credits> | null;
   private readonly commitment: Commitment;
 
   constructor(
@@ -106,13 +116,18 @@ export class CreditsClient {
     this.serverKeypair = serverKeypair;
     this.commitment = opts.commitment ?? "confirmed";
 
-    const provider = new AnchorProvider(connection, new Wallet(serverKeypair), {
-      commitment: this.commitment,
-    });
+    const wallet = new Wallet(serverKeypair);
+    const provider = new AnchorProvider(connection, wallet, { commitment: this.commitment });
     this.program = new Program<Credits>(idl, provider);
     this.programId = this.program.programId;
     this.ephemeralConnection = opts.ephemeralRpcUrl
       ? new Connection(opts.ephemeralRpcUrl, this.commitment)
+      : null;
+    this.erProgram = this.ephemeralConnection
+      ? new Program<Credits>(
+          idl,
+          new AnchorProvider(this.ephemeralConnection, wallet, { commitment: this.commitment }),
+        )
       : null;
   }
 
@@ -212,13 +227,64 @@ export class CreditsClient {
   }
 
   // -------------------------------------------------------------------------
+  // Credit movements ON THE EPHEMERAL ROLLUP (player PDA must be delegated).
+  // Same instructions, sent to the ER RPC — gasless + ~real-time on the rollup.
+  // -------------------------------------------------------------------------
+
+  private erMethods() {
+    if (!this.erProgram) throw new Error("ER not configured (no ephemeralRpcUrl)");
+    return this.erProgram.methods;
+  }
+
+  async spendOnEr(authority: PublicKey, amount: number): Promise<TransactionSignature> {
+    return this.erMethods()
+      .spend(new BN(amount))
+      .accountsPartial(this.mutateAccounts(authority))
+      .rpc();
+  }
+
+  async earnOnEr(authority: PublicKey): Promise<TransactionSignature> {
+    return this.erMethods().earn().accountsPartial(this.mutateAccounts(authority)).rpc();
+  }
+
+  async refundOnEr(authority: PublicKey, amount: number): Promise<TransactionSignature> {
+    return this.erMethods()
+      .refund(new BN(amount))
+      .accountsPartial(this.mutateAccounts(authority))
+      .rpc();
+  }
+
+  async refillOnEr(authority: PublicKey): Promise<TransactionSignature> {
+    return this.erMethods().refill().accountsPartial(this.mutateAccounts(authority)).rpc();
+  }
+
+  /** Commit + undelegate, sent to the ER (settles ER state back to devnet and
+   *  returns PDA ownership to this program). Uses the fixed MagicBlock accounts. */
+  async undelegatePlayerOnEr(authority: PublicKey): Promise<TransactionSignature> {
+    return (this.erMethods() as unknown as { undelegatePlayer: () => any })
+      .undelegatePlayer()
+      .accountsPartial({
+        payer: this.serverKeypair.publicKey,
+        player: this.playerPda(authority),
+        magicProgram: MAGIC_PROGRAM_ID,
+        magicContext: MAGIC_CONTEXT_ID,
+      })
+      .rpc();
+  }
+
+  // -------------------------------------------------------------------------
   // Reads
   // -------------------------------------------------------------------------
 
-  async getPlayer(authority: PublicKey): Promise<PlayerAccount | null> {
-    const acc = await this.program.account.player.fetchNullable(
-      this.playerPda(authority),
-    );
+  /** Read the Player account. With `{ er: true }`, reads the live ER state (used
+   *  while the PDA is delegated — devnet is stale until the next commit). */
+  async getPlayer(
+    authority: PublicKey,
+    opts: { er?: boolean } = {},
+  ): Promise<PlayerAccount | null> {
+    const prog = opts.er ? this.erProgram : this.program;
+    if (!prog) return null;
+    const acc = await prog.account.player.fetchNullable(this.playerPda(authority));
     if (!acc) return null;
     return {
       authority: acc.authority,
@@ -228,6 +294,12 @@ export class CreditsClient {
       promptsSent: acc.promptsSent.toNumber(),
       bump: acc.bump,
     };
+  }
+
+  /** Is this player's PDA currently delegated to the ER? (owner == delegation prog) */
+  async isDelegatedOnChain(authority: PublicKey): Promise<boolean> {
+    const info = await this.connection.getAccountInfo(this.playerPda(authority));
+    return !!info && info.owner.equals(DELEGATION_PROGRAM_ID);
   }
 
   async getConfig() {

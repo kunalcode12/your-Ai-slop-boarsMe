@@ -11,7 +11,7 @@ import { CreditCounter } from "@/components/CreditCounter";
 import { IdentityChip } from "@/components/IdentityChip";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 import { DisconnectBanner } from "@/components/DisconnectBanner";
-import { ErrorToaster } from "@/components/Toasts";
+import { ErrorToaster, MagicBlockToaster } from "@/components/Toasts";
 import { OnlineCounter } from "@/components/OnlineCounter";
 import { HumanView } from "@/components/HumanView";
 import { LarpView } from "@/components/LarpView";
@@ -19,7 +19,7 @@ import { LarpView } from "@/components/LarpView";
 const TAB_KEY = "slop-tab";
 
 export default function Page() {
-  const { ready, emit, epoch } = useSocket();
+  const { ready, emit, epoch, erActive } = useSocket();
   const { muted, toggle } = useSound();
   const [tab, setTab] = useState<Tab>("human");
   // id of a question still waiting for an answer (so we can warn before leaving)
@@ -56,6 +56,7 @@ export default function Page() {
   return (
     <div className="flex min-h-dvh flex-col">
       <ErrorToaster />
+      <MagicBlockToaster />
       <DisconnectBanner />
 
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-4 pt-4">
@@ -66,6 +67,14 @@ export default function Page() {
             <div className="mt-1 flex flex-wrap items-center gap-1">
               <IdentityChip />
               <ConnectWalletButton />
+              {erActive && (
+                <span
+                  className="rounded-full border border-slime/60 bg-slime/10 px-2 py-0.5 text-[11px] font-bold text-slime"
+                  title="credits run on the MagicBlock ephemeral rollup — gasless + real-time, settled to devnet"
+                >
+                  ⚡ MagicBlock ER
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

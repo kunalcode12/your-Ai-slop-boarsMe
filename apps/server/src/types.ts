@@ -120,6 +120,13 @@ export interface CreditsBridge {
   spend(session: PlayerSession, amount: number): Promise<number>;
   earn(target: CreditTarget): Promise<void>;
   refund(target: CreditTarget, amount: number): Promise<void>;
+  /** MagicBlock ER: delegate a connected player's PDA to the rollup (no-op unless
+   *  ER is enabled). Safe to call repeatedly; runs in the background. */
+  ensureDelegated(session: PlayerSession): Promise<void>;
+  /** MagicBlock ER: commit + undelegate (settle to devnet) when a player leaves. */
+  undelegateIfNeeded(target: CreditTarget): Promise<void>;
+  /** Whether ER routing is enabled on this server (for UI/status). */
+  readonly erActive: boolean;
 }
 
 export interface StorageService {

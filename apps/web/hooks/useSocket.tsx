@@ -42,6 +42,8 @@ interface SocketCtx {
   refillTargetAt: number | null;
   /** live online counts (everyone online, split human vs larp). */
   presence: PresenceUpdatePayload;
+  /** whether the server routes credits through the MagicBlock ER (status badge). */
+  erActive: boolean;
   /** increments on every (re)connect — views watch it to re-sync their state. */
   epoch: number;
   emit: <E extends keyof ClientToServerEvents>(
@@ -71,6 +73,7 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
     larpers: 0,
   });
   const [epoch, setEpoch] = useState(0);
+  const [erActive, setErActive] = useState(false);
 
   useEffect(() => {
     const socket: ClientSocket = io(SERVER_URL, {
@@ -98,6 +101,7 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
       setPlayer(p.player);
       setCredits(p.player.credits);
       applyRefill(p.refillCountdownMs, p.player.credits >= MAX_CREDITS);
+      setErActive(!!p.erActive);
       setReady(true);
     });
 
@@ -139,11 +143,12 @@ export function SocketProvider({ pubkey, children }: { pubkey: string; children:
       maxCredits: MAX_CREDITS,
       refillTargetAt,
       presence,
+      erActive,
       epoch,
       emit,
       subscribe,
     }),
-    [status, ready, pubkey, player, credits, refillTargetAt, presence, epoch, emit, subscribe],
+    [status, ready, pubkey, player, credits, refillTargetAt, presence, erActive, epoch, emit, subscribe],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

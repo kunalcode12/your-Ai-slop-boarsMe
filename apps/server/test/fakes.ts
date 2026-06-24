@@ -290,13 +290,15 @@ export class FakeDb implements Db {
  */
 export class FakeCreditsClient {
   balances = new Map<string, number>();
+  /** pubkeys currently "delegated" to the (simulated) ER. */
+  delegated = new Set<string>();
   constructor(private startingBalance = STARTING_CREDITS) {}
 
   private key(authority: PublicKey): string {
     return authority.toBase58();
   }
 
-  async getPlayer(authority: PublicKey) {
+  async getPlayer(authority: PublicKey, _opts: { er?: boolean } = {}) {
     const k = this.key(authority);
     if (!this.balances.has(k)) return null;
     return {
@@ -307,6 +309,31 @@ export class FakeCreditsClient {
       promptsSent: 0,
       bump: 0,
     };
+  }
+
+  // --- ER simulation: the rollup shares the same logical balance store ---
+  async isDelegatedOnChain(authority: PublicKey): Promise<boolean> {
+    return this.delegated.has(this.key(authority));
+  }
+  async delegatePlayer(authority: PublicKey): Promise<string> {
+    this.delegated.add(this.key(authority));
+    return "sig-delegate";
+  }
+  async undelegatePlayerOnEr(authority: PublicKey): Promise<string> {
+    this.delegated.delete(this.key(authority));
+    return "sig-undelegate";
+  }
+  async spendOnEr(authority: PublicKey, amount: number): Promise<string> {
+    return this.spend(authority, amount);
+  }
+  async earnOnEr(authority: PublicKey): Promise<string> {
+    return this.earn(authority);
+  }
+  async refundOnEr(authority: PublicKey, amount: number): Promise<string> {
+    return this.refund(authority, amount);
+  }
+  async refillOnEr(authority: PublicKey): Promise<string> {
+    return this.refill(authority);
   }
   async initPlayer(authority: PublicKey): Promise<string> {
     this.balances.set(this.key(authority), this.startingBalance);
