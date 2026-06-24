@@ -82,6 +82,8 @@ export interface Db {
   createPrompt(input: CreatePromptInput): Promise<PromptRow>;
   claimNextPromptForAnswerer(answererId: string): Promise<PromptRow | null>;
   hasOwnQueuedPrompt(playerId: string): Promise<boolean>;
+  cancelQueuedPrompt(promptId: string, requesterId: string): Promise<PromptRow | null>;
+  cancelQueuedPromptsForRequester(requesterId: string): Promise<PromptRow[]>;
   expireStalePrompts(): Promise<PromptRow[]>;
   markPromptAnswered(promptId: string): Promise<void>;
   releasePromptToQueue(promptId: string, newExpiresAt: Date): Promise<void>;

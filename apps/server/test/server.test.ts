@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { Server } from "socket.io";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   SocketEvents,
   REPUTATION_START,
@@ -18,7 +18,7 @@ import { TokenBucketLimiter } from "../src/services/ratelimit";
 import { BasicModeration } from "../src/services/moderation";
 import { ChainCreditsBridge } from "../src/services/credits";
 import { registerSocket } from "../src/socket";
-import { expirySweep } from "../src/socket/lifecycle";
+import { expirySweep, cancelRequesterQueuedPrompts } from "../src/socket/lifecycle";
 import { FakeDb, FakeCreditsClient, FakeStorage } from "./fakes";
 import type { CreditsClient } from "@slop/program-client";
 
@@ -221,6 +221,87 @@ describe("game server", () => {
     larpTab.emit(SocketEvents.WorkRequest, {});
     const none = await waitFor<{ reason: string }>(larpTab, SocketEvents.WorkNone);
     expect(none.reason).toBe("only_own"); // not "empty_queue": gives the UI a real hint
+  });
+
+  it("human cancels a still-queued prompt → refunded + removed from queue", async () => {
+    const rig = await newServer();
+    const human = connect(rig.url, newPubkey());
+    const larper = connect(rig.url, newPubkey());
+    await waitFor(human, SocketEvents.PlayerState);
+    await waitFor(larper, SocketEvents.PlayerState);
+    const hPub = (human.auth as { pubkey: string }).pubkey;
+
+    human.emit(SocketEvents.PromptSubmit, { type: "text", body: "cancel me" });
+    const sub = await waitFor<{ promptId: string; creditsRemaining: number }>(
+      human,
+      SocketEvents.PromptSubmitted,
+    );
+    expect(rig.client.balances.get(hPub)).toBe(2); // spent 1
+
+    const refunded = waitFor<{ credits: number; reason: string }>(human, SocketEvents.CreditsUpdated);
+    human.emit(SocketEvents.PromptCancel, { promptId: sub.promptId });
+    const ev = await refunded;
+    expect(ev.reason).toBe("refund");
+    expect(ev.credits).toBe(3);
+    expect(rig.client.balances.get(hPub)).toBe(3); // credit back
+    expect(rig.db.prompts.get(sub.promptId)?.status).toBe("expired");
+
+    // gone from the queue: a larper now finds nothing
+    larper.emit(SocketEvents.WorkRequest, {});
+    const none = await waitFor<{ reason: string }>(larper, SocketEvents.WorkNone);
+    expect(none.reason).toBe("empty_queue");
+  });
+
+  it("cancel is a no-op once a larper claimed it (larper still answers + earns)", async () => {
+    const rig = await newServer();
+    const human = connect(rig.url, newPubkey());
+    const larper = connect(rig.url, newPubkey());
+    await waitFor(human, SocketEvents.PlayerState);
+    await waitFor(larper, SocketEvents.PlayerState);
+    const lPub = (larper.auth as { pubkey: string }).pubkey;
+
+    human.emit(SocketEvents.PromptSubmit, { type: "text", body: "too late to cancel" });
+    const sub = await waitFor<{ promptId: string }>(human, SocketEvents.PromptSubmitted);
+    larper.emit(SocketEvents.WorkRequest, {});
+    const assigned = await waitFor<{ prompt: { id: string } }>(larper, SocketEvents.WorkAssigned);
+    expect(assigned.prompt.id).toBe(sub.promptId);
+
+    // human tries to cancel — already claimed, so it's a no-op
+    human.emit(SocketEvents.PromptCancel, { promptId: sub.promptId });
+    await sleep(150);
+    expect(rig.db.prompts.get(sub.promptId)?.status).toBe("claimed");
+
+    // larper can still answer + earn (+1 → 4)
+    const recv = waitFor(human, SocketEvents.AnswerReceived);
+    larper.emit(SocketEvents.AnswerSubmit, {
+      promptId: sub.promptId,
+      type: "text",
+      body: "as an ai, hello",
+    });
+    await recv;
+    expect(rig.client.balances.get(lPub)).toBe(4);
+  });
+
+  it("leave-cleanup: a requester going offline drops their queued prompts + refunds", async () => {
+    const rig = await newServer();
+    const human = connect(rig.url, newPubkey());
+    await waitFor(human, SocketEvents.PlayerState);
+    const hPub = (human.auth as { pubkey: string }).pubkey;
+
+    human.emit(SocketEvents.PromptSubmit, { type: "text", body: "i'm leaving" });
+    const sub = await waitFor<{ promptId: string }>(human, SocketEvents.PromptSubmitted);
+    expect(rig.client.balances.get(hPub)).toBe(2);
+
+    // simulate the grace timer firing after they went offline
+    const row = await rig.db.getPlayer(hPub);
+    await cancelRequesterQueuedPrompts(rig.services, {
+      playerId: row!.id,
+      pubkey: hPub,
+      authority: new PublicKey(hPub),
+    });
+
+    expect(rig.db.prompts.get(sub.promptId)?.status).toBe("expired");
+    expect(rig.client.balances.get(hPub)).toBe(3); // refunded
   });
 
   it("re-queue caps expiry at original lifetime (no immortal 'zombie' prompts)", async () => {

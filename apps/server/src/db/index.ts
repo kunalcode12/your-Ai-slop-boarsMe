@@ -38,6 +38,8 @@ export {
   createPrompt,
   claimNextPromptForAnswerer,
   hasOwnQueuedPrompt,
+  cancelQueuedPrompt,
+  cancelQueuedPromptsForRequester,
   expireStalePrompts,
   markPromptAnswered,
   releasePromptToQueue,

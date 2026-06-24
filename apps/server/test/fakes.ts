@@ -135,6 +135,26 @@ export class FakeDb implements Db {
     return false;
   }
 
+  async cancelQueuedPrompt(promptId: string, requesterId: string): Promise<PromptRow | null> {
+    const p = this.prompts.get(promptId);
+    if (p && p.status === "queued" && p.requester_id === requesterId) {
+      p.status = "expired";
+      return p;
+    }
+    return null;
+  }
+
+  async cancelQueuedPromptsForRequester(requesterId: string): Promise<PromptRow[]> {
+    const cancelled: PromptRow[] = [];
+    for (const p of this.prompts.values()) {
+      if (p.status === "queued" && p.requester_id === requesterId) {
+        p.status = "expired";
+        cancelled.push(p);
+      }
+    }
+    return cancelled;
+  }
+
   async expireStalePrompts(): Promise<PromptRow[]> {
     const expired: PromptRow[] = [];
     for (const p of this.prompts.values()) {

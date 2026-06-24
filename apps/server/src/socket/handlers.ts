@@ -7,6 +7,7 @@ import {
   REPUTATION_REPORT_PENALTY,
   SocketEvents,
   submitPromptSchema,
+  cancelPromptSchema,
   requestWorkSchema,
   submitAnswerSchema,
   reportSchema,
@@ -60,6 +61,32 @@ export async function submitPrompt(
     promptId: prompt.id,
     status: "queued",
     creditsRemaining,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// human flow — cancel your own still-queued prompt (leaving / switching tab)
+// ---------------------------------------------------------------------------
+export async function cancelPrompt(
+  services: Services,
+  socket: TypedSocket,
+  session: PlayerSession,
+  raw: unknown,
+): Promise<void> {
+  const { promptId } = cancelPromptSchema.parse(raw);
+  const { db, credits, queue } = services;
+
+  // Only succeeds if it's still queued AND owned by this player. If a larper has
+  // already claimed it, this is a no-op (they get to finish + earn).
+  const cancelled = await db.cancelQueuedPrompt(promptId, session.playerId);
+  if (!cancelled) return;
+
+  queue.remove(cancelled.id);
+  // give the credit back (chain-first refund; auto-retried if the chain hiccups)
+  await credits.refund(session, cancelled.credits_cost);
+  socket.emit(SocketEvents.PromptExpired, {
+    promptId: cancelled.id,
+    refundedCredits: cancelled.credits_cost,
   });
 }
 

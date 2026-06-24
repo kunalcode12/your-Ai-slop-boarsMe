@@ -22,6 +22,8 @@ export default function Page() {
   const { ready, emit, epoch } = useSocket();
   const { muted, toggle } = useSound();
   const [tab, setTab] = useState<Tab>("human");
+  // id of a question still waiting for an answer (so we can warn before leaving)
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(TAB_KEY);
@@ -35,6 +37,16 @@ export default function Page() {
   }, [ready, tab, emit, epoch]);
 
   const changeTab = (t: Tab) => {
+    // leaving the human tab while a question is still queued → warn, and on
+    // confirm pull it from the queue (refunded if no ai has claimed it yet).
+    if (t !== tab && tab === "human" && pendingPrompt) {
+      const ok = window.confirm(
+        "you've got a question waiting for an ai. switching to 'larp as ai' gives up its spot in the queue — if no ai has picked it up yet, your credit is refunded. switch anyway?",
+      );
+      if (!ok) return;
+      emit(SocketEvents.PromptCancel, { promptId: pendingPrompt });
+      setPendingPrompt(null);
+    }
     setTab(t);
     localStorage.setItem(TAB_KEY, t);
   };
@@ -72,7 +84,9 @@ export default function Page() {
 
         <Tabs tab={tab} onChange={changeTab} />
 
-        <section className="pb-8">{tab === "human" ? <HumanView /> : <LarpView />}</section>
+        <section className="pb-8">
+          {tab === "human" ? <HumanView onPending={setPendingPrompt} /> : <LarpView />}
+        </section>
       </main>
 
       <Footer />

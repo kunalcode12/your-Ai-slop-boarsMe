@@ -61,6 +61,46 @@ export async function hasOwnQueuedPrompt(playerId: string): Promise<boolean> {
 }
 
 /**
+ * Cancel a single still-QUEUED prompt owned by `requesterId` (e.g. the requester
+ * switched tabs / is leaving). Atomic + ownership-guarded: only matches if it's
+ * still 'queued' and belongs to them, so a prompt a larper already CLAIMED can't
+ * be yanked out from under them. Returns the row (for the refund) or null.
+ */
+export async function cancelQueuedPrompt(
+  promptId: string,
+  requesterId: string,
+): Promise<PromptRow | null> {
+  const { data, error } = await getDb()
+    .from("prompts")
+    .update({ status: "expired" })
+    .eq("id", promptId)
+    .eq("requester_id", requesterId)
+    .eq("status", "queued")
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`cancelQueuedPrompt: ${error.message}`);
+  return data;
+}
+
+/**
+ * Cancel ALL still-queued prompts a requester wrote — used when they go fully
+ * offline (no remaining sockets). Returns the cancelled rows so the caller can
+ * refund each. Claimed prompts are untouched (a larper may still answer them).
+ */
+export async function cancelQueuedPromptsForRequester(
+  requesterId: string,
+): Promise<PromptRow[]> {
+  const { data, error } = await getDb()
+    .from("prompts")
+    .update({ status: "expired" })
+    .eq("requester_id", requesterId)
+    .eq("status", "queued")
+    .select("*");
+  if (error) throw new Error(`cancelQueuedPromptsForRequester: ${error.message}`);
+  return data ?? [];
+}
+
+/**
  * Flip queued+overdue prompts to 'expired' and return them so the caller can
  * refund each requester (the refund is on-chain + applyCreditDelta).
  */

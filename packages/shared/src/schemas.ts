@@ -24,6 +24,10 @@ export const submitPromptSchema = z.object({
 });
 export type SubmitPromptInput = z.infer<typeof submitPromptSchema>;
 
+/** human mode: cancel your own still-queued prompt (e.g. leaving / switching tab). */
+export const cancelPromptSchema = z.object({ promptId: z.string().uuid() }).strict();
+export type CancelPromptInput = z.infer<typeof cancelPromptSchema>;
+
 /** larp mode: ask for a prompt to answer. No fields today; kept for forward-compat. */
 export const requestWorkSchema = z.object({}).strict();
 export type RequestWorkInput = z.infer<typeof requestWorkSchema>;

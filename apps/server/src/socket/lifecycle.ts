@@ -100,6 +100,38 @@ export async function deliverAnswer(
   }
 }
 
+/**
+ * Drop every still-queued prompt this requester wrote and refund each — used when
+ * they go fully offline (their last socket left). A prompt a larper has already
+ * CLAIMED is left alone (still 'claimed', not 'queued'), so the larper can finish
+ * and earn even though the human is gone (the answer just won't be delivered).
+ */
+export async function cancelRequesterQueuedPrompts(
+  services: Services,
+  target: { playerId: string; pubkey: string; authority: PublicKey },
+): Promise<void> {
+  const { db, queue, credits, io, log } = services;
+  let cancelled;
+  try {
+    cancelled = await db.cancelQueuedPromptsForRequester(target.playerId);
+  } catch (e) {
+    log.error({ err: String(e), pubkey: target.pubkey }, "cancelRequesterQueuedPrompts failed");
+    return;
+  }
+  for (const p of cancelled) {
+    queue.remove(p.id);
+    try {
+      await credits.refund(target, p.credits_cost);
+    } catch (e) {
+      log.error({ err: String(e), promptId: p.id }, "leave-cleanup refund failed");
+    }
+    io.to(target.pubkey).emit(SocketEvents.PromptExpired, {
+      promptId: p.id,
+      refundedCredits: p.credits_cost,
+    });
+  }
+}
+
 /** Return a claimed prompt to the queue. `penalize` for ghost/timeout/disconnect. */
 export async function releaseClaim(
   services: Services,

@@ -4,8 +4,18 @@ import { ZodError } from "zod";
 import { pubkeySchema, presenceModeSchema, SocketEvents } from "@slop/shared";
 import { isAppError } from "../errors";
 import type { Services, TypedSocket } from "../types";
-import { submitPrompt, requestWork, submitAnswer, report } from "./handlers";
-import { doHandshake, releaseClaim, deliverAnswer } from "./lifecycle";
+import { submitPrompt, cancelPrompt, requestWork, submitAnswer, report } from "./handlers";
+import {
+  doHandshake,
+  releaseClaim,
+  deliverAnswer,
+  cancelRequesterQueuedPrompts,
+} from "./lifecycle";
+
+// Grace window after a player's LAST socket drops before we cancel their still-
+// queued prompts. Long enough that a refresh / brief reconnect doesn't lose the
+// question (the reconnect clears the pending cleanup).
+const LEAVE_GRACE_MS = 12_000;
 
 function emitError(services: Services, socket: TypedSocket, e: unknown): void {
   if (e instanceof ZodError) {
@@ -20,6 +30,17 @@ function emitError(services: Services, socket: TypedSocket, e: unknown): void {
 
 export function registerSocket(services: Services): void {
   const { io, log, presence } = services;
+
+  // pubkey -> pending "you left, dropping your queued prompts" timer (cancelled
+  // if the player reconnects within LEAVE_GRACE_MS).
+  const leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const cancelLeaveTimer = (pubkey: string): void => {
+    const t = leaveTimers.get(pubkey);
+    if (t) {
+      clearTimeout(t);
+      leaveTimers.delete(pubkey);
+    }
+  };
 
   // Throttled live-counts broadcast — coalesces connect/mode/disconnect storms so
   // a reconnect flood can't spam every client (at most one emit per ~400ms).
@@ -73,6 +94,24 @@ export function registerSocket(services: Services): void {
       if (!hs) return; // rejected (banned) + already disconnected
       const { session, statePayload } = hs;
 
+      // a (re)connect within the grace window cancels any pending leave-cleanup,
+      // so a refresh never loses the player's queued prompt.
+      cancelLeaveTimer(pubkey);
+
+      // when this player's LAST socket drops, schedule dropping their still-queued
+      // prompts (refunded) unless they reconnect within the grace window.
+      socket.on("disconnect", () => {
+        if (presence.isOnline(pubkey)) return; // another tab of theirs is still here
+        cancelLeaveTimer(pubkey);
+        leaveTimers.set(
+          pubkey,
+          setTimeout(() => {
+            leaveTimers.delete(pubkey);
+            if (!presence.isOnline(pubkey)) void cancelRequesterQueuedPrompts(services, session);
+          }, LEAVE_GRACE_MS),
+        );
+      });
+
       // count this client (default to the "human" tab)
       presence.setSocketMode(socket.id, "human");
 
@@ -84,6 +123,7 @@ export function registerSocket(services: Services): void {
       };
 
       socket.on(SocketEvents.PromptSubmit, (p) => run(() => submitPrompt(services, socket, session, p)));
+      socket.on(SocketEvents.PromptCancel, (p) => run(() => cancelPrompt(services, socket, session, p)));
       socket.on(SocketEvents.WorkRequest, (p) => run(() => requestWork(services, socket, session, p)));
       socket.on(SocketEvents.AnswerSubmit, (p) => run(() => submitAnswer(services, socket, session, p)));
       socket.on(SocketEvents.Report, (p) => run(() => report(services, socket, session, p)));

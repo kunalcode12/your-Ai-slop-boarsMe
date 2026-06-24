@@ -26,7 +26,9 @@ interface Received {
   imageUrl: string | null;
 }
 
-export function HumanView() {
+/** `onPending` reports the id of a still-waiting prompt (or null) so the page can
+ *  warn before the user switches tabs and abandons it. */
+export function HumanView({ onPending }: { onPending?: (promptId: string | null) => void } = {}) {
   const { emit, subscribe, credits, status } = useSocket();
   const { toast } = useToast();
   const { play } = useSound();
@@ -43,6 +45,7 @@ export function HumanView() {
   useEffect(() => {
     const offSubmitted = subscribe(SocketEvents.PromptSubmitted, (p: PromptSubmittedPayload) => {
       pending.current = p.promptId;
+      onPending?.(p.promptId); // a question is now waiting in the queue
     });
     const offAnswer = subscribe(SocketEvents.AnswerReceived, (p: AnswerReceivedPayload) => {
       if (p.promptId !== pending.current) return;
@@ -53,18 +56,20 @@ export function HumanView() {
         imageUrl: p.answer.imageUrl,
       });
       setPhase("answered");
+      onPending?.(null); // answered — nothing to abandon
       play("ping");
     });
     const offExpired = subscribe(SocketEvents.PromptExpired, (p: PromptExpiredPayload) => {
       if (p.promptId !== pending.current) return;
       setPhase("expired");
+      onPending?.(null); // gone (expired / cancelled) — nothing to abandon
     });
     return () => {
       offSubmitted();
       offAnswer();
       offExpired();
     };
-  }, [subscribe, play]);
+  }, [subscribe, play, onPending]);
 
   const cost = mode === "image" ? CREDIT_COST_IMAGE : CREDIT_COST_TEXT;
   const enoughCredits = credits >= cost;
@@ -88,6 +93,7 @@ export function HumanView() {
     setAnswer(null);
     setAsked("");
     pending.current = null;
+    onPending?.(null);
   };
 
   const reportAnswer = () => {
