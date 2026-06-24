@@ -15,6 +15,7 @@ import type {
 } from "./types";
 import type {
   SubmitPromptInput,
+  CancelPromptInput,
   RequestWorkInput,
   SubmitAnswerInput,
   ReportInput,
@@ -33,6 +34,8 @@ export const SocketEvents = {
   PromptSubmit: "prompt:submit",
   /** server -> client: ack that a prompt was queued (credits spent). */
   PromptSubmitted: "prompt:submitted",
+  /** client -> server: cancel your own still-queued prompt (leaving / switching tab). */
+  PromptCancel: "prompt:cancel",
 
   /** client -> server: request a prompt to answer (larp mode). */
   WorkRequest: "work:request",
@@ -181,6 +184,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   "prompt:submit": (payload: SubmitPromptInput) => void;
+  "prompt:cancel": (payload: CancelPromptInput) => void;
   "work:request": (payload: RequestWorkInput) => void;
   "answer:submit": (payload: SubmitAnswerInput) => void;
   "report": (payload: ReportInput) => void;

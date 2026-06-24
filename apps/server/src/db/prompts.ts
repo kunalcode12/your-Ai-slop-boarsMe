@@ -1,6 +1,6 @@
 /** Prompts: creation, the atomic claim, expiry sweep, lifecycle transitions. */
 
-import type { PromptType } from "@slop/shared";
+import { PROMPT_EXPIRY_MS, type PromptType } from "@slop/shared";
 import { getDb } from "./client";
 import type { PromptRow } from "./types";
 
@@ -79,20 +79,36 @@ export async function markPromptAnswered(promptId: string): Promise<void> {
 }
 
 /**
- * Return a claimed prompt to the queue (answerer ghosted / timed out). Resets
- * claim fields and gives it a fresh expiry window (compute from PROMPT_EXPIRY_MS).
+ * Return a claimed prompt to the queue (answerer ghosted / timed out). Resets the
+ * claim fields. CRITICAL: the new expiry is CAPPED at the prompt's original
+ * lifetime (created_at + PROMPT_EXPIRY_MS) — re-queueing must never extend a
+ * prompt's life. Without this cap a prompt that's repeatedly claimed-then-ghosted
+ * (e.g. while testing) gets a brand-new full window each time and becomes an
+ * immortal "zombie" that the FIFO claim keeps serving ahead of fresh prompts.
  */
 export async function releasePromptToQueue(
   promptId: string,
   newExpiresAt: Date,
 ): Promise<void> {
-  const { error } = await getDb()
+  const db = getDb();
+  // read the original creation time so we can clamp the lifetime
+  const { data: row, error: readErr } = await db
+    .from("prompts")
+    .select("created_at")
+    .eq("id", promptId)
+    .maybeSingle();
+  if (readErr) throw new Error(`releasePromptToQueue(read): ${readErr.message}`);
+
+  const lifeCapMs = row ? Date.parse(row.created_at) + PROMPT_EXPIRY_MS : newExpiresAt.getTime();
+  const capped = new Date(Math.min(newExpiresAt.getTime(), lifeCapMs));
+
+  const { error } = await db
     .from("prompts")
     .update({
       status: "queued",
       claimed_by: null,
       claimed_at: null,
-      expires_at: newExpiresAt.toISOString(),
+      expires_at: capped.toISOString(),
     })
     .eq("id", promptId);
   if (error) throw new Error(`releasePromptToQueue: ${error.message}`);

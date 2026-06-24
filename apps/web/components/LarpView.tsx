@@ -135,12 +135,16 @@ export function LarpView() {
   const remaining = useCountdown(phase === "working" ? (assignment?.deadlineAt ?? null) : null);
 
   // timer hit zero while working → too slow (just flip phase + stamp the time).
+  // Guard against a stale `remaining` (e.g. the first render after assignment):
+  // only time out if the REAL deadline has actually passed, so we never flip to
+  // "too slow" the instant a prompt is assigned.
   useEffect(() => {
-    if (phase === "working" && assignment && remaining <= 0) {
-      transAt.current = Date.now();
-      setPhaseBoth("timeout");
-      play("timeout");
-    }
+    if (phase !== "working" || !assignment) return;
+    if (remaining > 0) return;
+    if (assignment.deadlineAt - Date.now() > 0) return; // deadline still in the future
+    transAt.current = Date.now();
+    setPhaseBoth("timeout");
+    play("timeout");
   }, [phase, remaining, assignment, play, setPhaseBoth]);
 
   // ONE robust driver for the whole "active" lifetime (everything except idle).

@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Server } from "socket.io";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { Keypair } from "@solana/web3.js";
-import { SocketEvents, REPUTATION_START, REPUTATION_REPORT_PENALTY } from "@slop/shared";
+import {
+  SocketEvents,
+  REPUTATION_START,
+  REPUTATION_REPORT_PENALTY,
+  PROMPT_EXPIRY_MS,
+} from "@slop/shared";
 import type { Logger, Services, Timings, TypedServer } from "../src/types";
 import { PresenceService } from "../src/services/presence";
 import { InMemoryQueue } from "../src/services/queue";
@@ -216,6 +221,34 @@ describe("game server", () => {
     larpTab.emit(SocketEvents.WorkRequest, {});
     const none = await waitFor<{ reason: string }>(larpTab, SocketEvents.WorkNone);
     expect(none.reason).toBe("only_own"); // not "empty_queue": gives the UI a real hint
+  });
+
+  it("re-queue caps expiry at original lifetime (no immortal 'zombie' prompts)", async () => {
+    // Regression: a prompt that's repeatedly claimed-then-ghosted must NOT get a
+    // brand-new full expiry window each time — otherwise it lives forever and the
+    // FIFO claim keeps serving it ahead of fresh questions (the bug where the
+    // larper kept seeing a stale old prompt instead of the one just asked).
+    const db = new FakeDb();
+    const requester = await db.upsertPlayerByPubkey(newPubkey());
+    const prompt = await db.createPrompt({
+      requesterId: requester.id,
+      type: "text",
+      body: "old one",
+      creditsCost: 1,
+      expiresAt: new Date(Date.now() + 1000),
+    });
+    // simulate an OLD prompt: created 10 min ago (older than the 5-min lifetime)
+    const createdAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    db.prompts.get(prompt.id)!.created_at = createdAt;
+
+    // try to re-queue it with a generous fresh window (what a ghost release does)
+    await db.releasePromptToQueue(prompt.id, new Date(Date.now() + 5 * 60_000));
+
+    const after = db.prompts.get(prompt.id)!;
+    // expiry is clamped to created_at + PROMPT_EXPIRY_MS (in the PAST) — so the next
+    // sweep expires + refunds it instead of it living forever.
+    expect(Date.parse(after.expires_at)).toBe(Date.parse(createdAt) + PROMPT_EXPIRY_MS);
+    expect(Date.parse(after.expires_at)).toBeLessThan(Date.now());
   });
 
   it("ghost/timeout → re-queue + cooldown + reputation hit", async () => {

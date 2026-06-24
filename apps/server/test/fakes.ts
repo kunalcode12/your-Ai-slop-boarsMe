@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import {
+  PROMPT_EXPIRY_MS,
   REPUTATION_START,
   STARTING_CREDITS,
   type CreditChangeReason,
@@ -154,7 +155,9 @@ export class FakeDb implements Db {
       p.status = "queued";
       p.claimed_by = null;
       p.claimed_at = null;
-      p.expires_at = newExpiresAt.toISOString();
+      // cap at original lifetime — re-queue never extends a prompt's life (no zombies)
+      const lifeCap = Date.parse(p.created_at) + PROMPT_EXPIRY_MS;
+      p.expires_at = new Date(Math.min(newExpiresAt.getTime(), lifeCap)).toISOString();
     }
   }
   async listQueuedPrompts(): Promise<PromptRow[]> {
