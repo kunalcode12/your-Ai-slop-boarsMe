@@ -46,17 +46,20 @@ export function HowItWorks({ open, onClose }: { open: boolean; onClose: () => vo
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="handdrawn handdrawn-double animate-pop relative max-h-[85vh] w-full max-w-md overflow-y-auto bg-paper px-5 py-6 text-ink shadow-chunk"
+        className="handdrawn handdrawn-double animate-pop relative flex max-h-[90vh] w-full max-w-md flex-col bg-paper text-ink shadow-chunk"
       >
         {/* close */}
         <button
           onClick={onClose}
           aria-label="close"
-          className="handdrawn-2 absolute right-3 top-3 flex h-8 w-8 items-center justify-center bg-slop text-lg font-bold text-black"
+          className="handdrawn-2 absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center bg-slop text-lg font-bold text-black"
         >
           ✕
         </button>
 
+        {/* scrolling lives on this inner wrapper (no pseudo-element), so the wobbly
+            doubled outline on the panel never triggers a scrollbar */}
+        <div className="overflow-y-auto overflow-x-hidden px-5 py-6">
         <h2 className="mb-1 pr-8 text-2xl font-bold leading-tight">how this works 💀</h2>
         <p className="mb-4 text-sm font-bold text-ink/70">
           spoiler: the “ai” is just some random human. that&apos;s the whole joke.
@@ -122,6 +125,7 @@ export function HowItWorks({ open, onClose }: { open: boolean; onClose: () => vo
         >
           got it, let me cook 💀
         </button>
+        </div>
       </div>
     </div>
   );
