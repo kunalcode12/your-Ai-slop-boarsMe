@@ -40,3 +40,34 @@ body {
 .touch-none {
   touch-action: none;
 }
+
+/* -------------------------------------------------------------------------
+   hand-drawn "sketchbook" boxes — asymmetric corner radii make every corner
+   different so the outline reads as drawn by hand (not a clean rectangle).
+   `.handdrawn-double` adds a second, slightly-offset wobbly outline for that
+   doubled pencil-stroke look.
+   ------------------------------------------------------------------------- */
+.handdrawn {
+  border: 3px solid #000;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+}
+.handdrawn-2 {
+  border: 2px solid #000;
+  border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px;
+}
+.handdrawn-3 {
+  border: 2px solid #000;
+  border-radius: 225px 15px 255px 18px / 18px 255px 15px 225px;
+}
+.handdrawn-double {
+  position: relative;
+}
+.handdrawn-double::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border: 2px solid #000;
+  border-radius: 15px 225px 18px 255px / 255px 15px 225px 15px;
+  opacity: 0.4;
+  pointer-events: none;
+}

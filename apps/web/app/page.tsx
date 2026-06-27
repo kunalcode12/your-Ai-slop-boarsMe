@@ -13,10 +13,12 @@ import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 import { DisconnectBanner } from "@/components/DisconnectBanner";
 import { ErrorToaster, MagicBlockToaster } from "@/components/Toasts";
 import { OnlineCounter } from "@/components/OnlineCounter";
+import { HowItWorks } from "@/components/HowItWorks";
 import { HumanView } from "@/components/HumanView";
 import { LarpView } from "@/components/LarpView";
 
 const TAB_KEY = "slop-tab";
+const INTRO_KEY = "slop-intro-v1"; // bump the suffix to re-show the intro after edits
 
 export default function Page() {
   const { ready, emit, epoch, erActive } = useSocket();
@@ -24,10 +26,16 @@ export default function Page() {
   const [tab, setTab] = useState<Tab>("human");
   // id of a question still waiting for an answer (so we can warn before leaving)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [showIntro, setShowIntro] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(TAB_KEY);
     if (saved === "human" || saved === "larp") setTab(saved);
+    // first-ever visit → show the how-it-works dialog once, then remember.
+    if (!localStorage.getItem(INTRO_KEY)) {
+      setShowIntro(true);
+      localStorage.setItem(INTRO_KEY, "1");
+    }
   }, []);
 
   // tell the server which tab we're on so it can publish live online counts
@@ -57,6 +65,7 @@ export default function Page() {
     <div className="flex min-h-dvh flex-col">
       <ErrorToaster />
       <MagicBlockToaster />
+      <HowItWorks open={showIntro} onClose={() => setShowIntro(false)} />
       <DisconnectBanner />
 
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-4 pt-4">
@@ -79,6 +88,14 @@ export default function Page() {
           </div>
           <div className="flex items-center gap-2">
             <CreditCounter />
+            <button
+              onClick={() => setShowIntro(true)}
+              aria-label="how it works"
+              title="how it works"
+              className="rounded-lg border border-ink-line px-1.5 text-sm"
+            >
+              ❓
+            </button>
             <button
               onClick={toggle}
               aria-label={muted ? "unmute" : "mute"}
