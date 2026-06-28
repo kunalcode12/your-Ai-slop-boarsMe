@@ -17,7 +17,6 @@ credits also slowly refill so new users aren't stuck. no signup, no paywall.
 > mainnet, no tradeable token.
 
 ## structure
-
 ```
 slop/
   apps/
