@@ -9,6 +9,8 @@ export function CreditCounter() {
   const remaining = useCountdown(refillTargetAt);
 
   const atCap = credits >= maxCredits;
+
+  // TODO: translate this
   const refillLabel = atCap
     ? "credits full 💀"
     : refillTargetAt == null
